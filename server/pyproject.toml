@@ -1,0 +1,26 @@
+[project]
+name = "codex-graph-server"
+version = "0.1.0"
+description = "The MCP server of Codex Graph."
+authors = [
+    {name = "Felix Müller",email = "felix@fmueller.io"}
+]
+license = {text = "Apache License 2.0"}
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "langchain (>=0.3.27,<0.4.0)",
+    "langchain-ollama (>=0.3.8,<0.4.0)",
+    "tree-sitter (>=0.25.1,<0.26.0)",
+    "tree-sitter-language-pack (>=0.9.0,<0.10.0)",
+]
+
+[project.scripts]
+codex-graph-server = "codex_graph_server.main:main"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+packages = [{ include = "codex_graph_server", from = "src" }]
