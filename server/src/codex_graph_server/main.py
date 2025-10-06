@@ -1,11 +1,11 @@
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from tree_sitter import Query, QueryCursor
-from tree_sitter_language_pack import get_parser, get_language
+from tree_sitter_language_pack import get_language, get_parser
 
 
-def extract_ast_from_file(path: str) -> Dict[str, Any]:
+def extract_ast_from_file(path: str) -> dict[str, Any]:
     """
     Parses the AST from the given Python file.
 
@@ -26,19 +26,21 @@ def extract_ast_from_file(path: str) -> Dict[str, Any]:
 
     tree = parser.parse(source_bytes)
 
-    query = Query(get_language("python"), open("src/codex_graph_server/queries/python_detailed.scm").read())
+    with open("src/codex_graph_server/queries/python_detailed.scm", encoding="utf-8") as f:
+        query_text = f.read()
+    query = Query(get_language("python"), query_text)
     cursor = QueryCursor(query)
-    for pattern_idx, captures in cursor.matches(tree.root_node):
+    for _, captures in cursor.matches(tree.root_node):
         for cap_name, nodes in captures.items():
             for node in nodes:
-                text = source_bytes[node.start_byte:node.end_byte].decode("utf-8")
+                text = source_bytes[node.start_byte : node.end_byte].decode("utf-8")
                 print(cap_name + ": " + text)
 
     root = tree.root_node
 
-    def node_to_dict(node) -> Dict[str, Any]:
+    def node_to_dict(node) -> dict[str, Any]:
         # Convert a tree-sitter Node into a serializable dict
-        data: Dict[str, Any] = {
+        data: dict[str, Any] = {
             "type": node.type,
             "start_byte": node.start_byte,
             "end_byte": node.end_byte,
@@ -53,7 +55,7 @@ def extract_ast_from_file(path: str) -> Dict[str, Any]:
             # Leaf node text (can be useful for identifiers/literals)
             # Decode safely to avoid errors on odd encodings
             try:
-                data["text"] = source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
+                data["text"] = source_bytes[node.start_byte : node.end_byte].decode("utf-8", errors="replace")
             except Exception:  # pragma: no cover
                 data["text"] = ""
         return data
