@@ -1,16 +1,40 @@
 from pathlib import Path
-from typing import Any
 
+from pydantic import BaseModel
 from tree_sitter import Query, QueryCursor
 from tree_sitter_language_pack import get_language, get_parser
 
 
-def extract_ast_from_file(path: str) -> dict[str, Any]:
+class Position(BaseModel):
+    row: int
+    column: int
+
+
+class AstNode(BaseModel):
+    type: str
+    start_byte: int
+    end_byte: int
+    start_point: Position
+    end_point: Position
+    text: str | None = None
+    children: list["AstNode"] | None = None
+
+
+AstNode.model_rebuild()
+
+
+class FileAst(BaseModel):
+    language: str
+    path: str
+    ast: AstNode
+
+
+def extract_ast_from_file(path: str) -> FileAst:
     """
     Parses the AST from the given Python file.
 
     :param path: Path to the Python file.
-    :return: Dict with AST data.
+    :return: FileAst model with AST data.
     """
 
     file_path = Path(path)
@@ -38,34 +62,35 @@ def extract_ast_from_file(path: str) -> dict[str, Any]:
 
     root = tree.root_node
 
-    def node_to_dict(node) -> dict[str, Any]:
-        # Convert a tree-sitter Node into a serializable dict
-        data: dict[str, Any] = {
-            "type": node.type,
-            "start_byte": node.start_byte,
-            "end_byte": node.end_byte,
-            "start_point": {"row": node.start_point[0], "column": node.start_point[1]},
-            "end_point": {"row": node.end_point[0], "column": node.end_point[1]},
-        }
+    def node_to_model(node) -> AstNode:
+        # Convert a tree-sitter Node into an AstNode model
+        children = None
+        text_value = None
 
-        # Include children if present; otherwise include the leaf text
         if node.child_count > 0:
-            data["children"] = [node_to_dict(child) for child in node.children]
+            children = [node_to_model(child) for child in node.children]
         else:
-            # Leaf node text (can be useful for identifiers/literals)
-            # Decode safely to avoid errors on odd encodings
             try:
-                data["text"] = source_bytes[node.start_byte : node.end_byte].decode("utf-8", errors="replace")
-            except Exception:  # pragma: no cover
-                data["text"] = ""
-        return data
+                text_value = source_bytes[node.start_byte : node.end_byte].decode("utf-8", errors="replace")
+            except Exception:
+                text_value = ""
 
-    ast_dict = {
-        "language": "python",
-        "path": str(file_path),
-        "ast": node_to_dict(root),
-    }
-    return ast_dict
+        return AstNode(
+            type=node.type,
+            start_byte=node.start_byte,
+            end_byte=node.end_byte,
+            start_point=Position(row=node.start_point[0], column=node.start_point[1]),
+            end_point=Position(row=node.end_point[0], column=node.end_point[1]),
+            text=text_value,
+            children=children,
+        )
+
+    ast_model = FileAst(
+        language="python",
+        path=str(file_path),
+        ast=node_to_model(root),
+    )
+    return ast_model
 
 
 def main() -> None:
