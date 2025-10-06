@@ -1,0 +1,30 @@
+FROM apache/age:release_PG16_1.6.0
+
+ENV PG_MAJOR=16
+ENV PG_HOME=/usr/lib/postgresql/${PG_MAJOR}
+ENV PG_CONFIG=${PG_HOME}/bin/pg_config
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git build-essential ca-certificates curl \
+      postgresql-server-dev-${PG_MAJOR} \
+ && rm -rf /var/lib/apt/lists/*
+
+# Build pgvector v0.8.1 with safe CPU flags
+
+# For non-ARM64 hosts, instead: ENV CFLAGS="-O2 -fno-strict-aliasing -fPIC -fvisibility=hidden -march=armv8-a"
+# ENV CFLAGS="-O2 -fno-strict-aliasing -fPIC -fvisibility=hidden -march=x86-64 -mtune=generic"
+# For ARM64 hosts, instead: ENV CFLAGS="-O2 -fno-strict-aliasing -fPIC -fvisibility=hidden -march=armv8-a"
+ENV CFLAGS="-O2 -fno-strict-aliasing -fPIC -fvisibility=hidden -march=armv8-a"
+
+RUN cd /tmp \
+ && git clone --branch v0.8.1 --depth 1 https://github.com/pgvector/pgvector.git \
+ && cd /tmp/pgvector \
+ && make PG_CONFIG=${PG_CONFIG} CFLAGS="${CFLAGS}" \
+ && make install PG_CONFIG=${PG_CONFIG} \
+ && rm -rf /tmp/pgvector
+
+# Initialize AGE and pgvector on first run
+RUN mkdir -p /docker-entrypoint-initdb.d
+COPY init-extensions.sql /docker-entrypoint-initdb.d/01-init-extensions.sql
+
+EXPOSE 5432
