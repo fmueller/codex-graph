@@ -56,7 +56,7 @@ def extract_ast_from_file(path: str) -> FileAst:
 
     tree = parser.parse(source_bytes)
 
-    with open("src/codex_graph_server/queries/python_detailed.scm", encoding="utf-8") as f:
+    with open("src/codex_graph/queries/python_detailed.scm", encoding="utf-8") as f:
         query_text = f.read()
     query = Query(get_language("python"), query_text)
     cursor = QueryCursor(query)
@@ -216,7 +216,7 @@ async def persist_file_ast_to_age(engine: AsyncEngine, fa: FileAst) -> None:
 
 
 def main() -> None:
-    ast = extract_ast_from_file("src/codex_graph_server/main.py")
+    ast = extract_ast_from_file("src/codex_graph/main.py")
 
     async def _runner() -> None:
         engine = _get_engine()

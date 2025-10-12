@@ -1,7 +1,7 @@
 [project]
-name = "codex-graph-server"
+name = "codex-graph"
 version = "0.1.0"
-description = "The MCP server of Codex Graph."
+description = "The backend and CLI of Codex Graph."
 authors = [
     {name = "Felix Müller",email = "felix@fmueller.io"}
 ]
@@ -19,14 +19,14 @@ dependencies = [
 ]
 
 [project.scripts]
-codex-graph-server = "codex_graph_server.main:main"
+codex-graph-server = "codex_graph.main:main"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
-packages = [{ include = "codex_graph_server", from = "src" }]
+packages = [{ include = "codex_graph", from = "src" }]
 
 [tool.poetry.group.dev.dependencies]
 mypy = "^1.18.2"
