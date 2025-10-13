@@ -1,6 +1,8 @@
 import asyncio
+import hashlib
 import os
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,12 +19,12 @@ class Position(BaseModel):
 
 
 class AstNode(BaseModel):
+    file_uuid: str
     type: str
     start_byte: int
     end_byte: int
     start_point: Position
     end_point: Position
-    text: str | None = None
     children: list["AstNode"] | None = None
 
 
@@ -30,16 +32,17 @@ AstNode.model_rebuild()  # necessary for recursive types
 
 
 class FileAst(BaseModel):
+    file_uuid: str
     language: str
-    path: str
     ast: AstNode
 
 
-def extract_ast_from_file(path: str) -> FileAst:
+def _extract_ast_from_file(path: str, file_uuid: str) -> FileAst:
     """
     Parses the AST from the given Python file.
 
     :param path: Path to the Python file.
+    :param file_uuid: UUID of the file to use in the AST.
     :return: FileAst model with AST data.
     """
 
@@ -69,31 +72,23 @@ def extract_ast_from_file(path: str) -> FileAst:
     root = tree.root_node
 
     def node_to_model(node) -> AstNode:
-        # Convert a tree-sitter Node into an AstNode model
         children = None
-        text_value = None
-
         if node.child_count > 0:
             children = [node_to_model(child) for child in node.children]
-        else:
-            try:
-                text_value = source_bytes[node.start_byte : node.end_byte].decode("utf-8", errors="replace")
-            except Exception:
-                text_value = ""
 
         return AstNode(
             type=node.type,
+            file_uuid=file_uuid,
             start_byte=node.start_byte,
             end_byte=node.end_byte,
             start_point=Position(row=node.start_point[0], column=node.start_point[1]),
             end_point=Position(row=node.end_point[0], column=node.end_point[1]),
-            text=text_value,
             children=children,
         )
 
     return FileAst(
+        file_uuid=file_uuid,
         language="python",
-        path=str(file_path),
         ast=node_to_model(root),
     )
 
@@ -190,7 +185,7 @@ async def _persist_ast_node(engine: AsyncEngine, node: AstNode, parent_uuid: str
             "end_byte": node.end_byte,
             "start_point": _to_cypher_props(node.start_point.model_dump()),
             "end_point": _to_cypher_props(node.end_point.model_dump()),
-            "text": node.text,
+            "file_uuid": node.file_uuid,
         },
     )
 
@@ -205,23 +200,96 @@ async def _persist_ast_node(engine: AsyncEngine, node: AstNode, parent_uuid: str
     return node_uuid
 
 
-async def persist_file_ast_to_age(engine: AsyncEngine, fa: FileAst) -> None:
+async def _persist_file_ast_to_age(engine: AsyncEngine, fa: FileAst) -> None:
     await _ensure_graph(engine, GRAPH_NAME)
 
-    file_uuid = str(uuid.uuid4())
-    await _create_vertex(engine, "FileAst", {"uuid": file_uuid, "language": fa.language, "path": fa.path})
+    file_node_uuid = str(uuid.uuid4())
+    await _create_vertex(
+        engine, "FileAst", {"uuid": file_node_uuid, "language": fa.language, "file_uuid": fa.file_uuid}
+    )
 
-    root_uuid = await _persist_ast_node(engine, fa.ast)
-    await _create_edge(engine, "FileAst", file_uuid, "HAS_AST", "AstNode", root_uuid)
+    root_uuid = await _persist_ast_node(engine, fa.ast, file_node_uuid)
+    await _create_edge(engine, "FileAst", file_node_uuid, "HAS_AST", "AstNode", root_uuid)
+
+
+async def _ensure_files_table(engine: AsyncEngine) -> None:
+    ddl = (
+        "CREATE TABLE IF NOT EXISTS files ("
+        " id UUID PRIMARY KEY,"
+        " name TEXT NOT NULL,"
+        " full_path TEXT NOT NULL,"
+        " suffix TEXT NOT NULL,"
+        " content TEXT NOT NULL,"
+        " content_hash TEXT NOT NULL,"
+        " created TIMESTAMPTZ NOT NULL,"
+        " last_modified TIMESTAMPTZ NOT NULL"
+        ")"
+    )
+    async with engine.begin() as conn:
+        await conn.execute(text(ddl))
+
+
+async def _persist_file(engine: AsyncEngine, path: str) -> str:
+    file_path = Path(path)
+    full_path = str(file_path.resolve())
+    name = file_path.name
+    suffix = file_path.suffix
+    try:
+        content = file_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        # Fallback to binary decode with replacement
+        content = file_path.read_bytes().decode("utf-8", errors="replace")
+
+    content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    # TODO lookup if file exists in DB with same hash and return UUID if so
+
+    stat = file_path.stat()
+    # Note: st_ctime is platform-dependent; acceptable for now.
+    created_dt = datetime.fromtimestamp(stat.st_ctime, tz=UTC)
+    modified_dt = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
+
+    file_uuid = uuid.uuid4()
+
+    await _ensure_files_table(engine)
+
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                """
+                INSERT INTO files (id, name, full_path, suffix, content, content_hash, created, last_modified)
+                VALUES (:id, :name, :full_path, :suffix, :content, :content_hash, :created, :last_modified)
+                ON CONFLICT (id) DO NOTHING
+                """
+            ),
+            {
+                "id": file_uuid,
+                "name": name,
+                "full_path": full_path,
+                "suffix": suffix,
+                "content": content,
+                "content_hash": content_hash,
+                "created": created_dt,
+                "last_modified": modified_dt,
+            },
+        )
+
+    return str(file_uuid)
 
 
 def main() -> None:
-    ast = extract_ast_from_file("src/codex_graph/main.py")
+    file_path = "src/codex_graph/main.py"
 
     async def _runner() -> None:
         engine = _get_engine()
         try:
-            await persist_file_ast_to_age(engine, ast)
+            file_uuid = await _persist_file(engine, file_path)
+            print(f"Persisted file {file_path} with UUID {file_uuid}")
+
+            ast = _extract_ast_from_file(file_path, file_uuid)
+            print(f"Extracted AST from {file_path}")
+
+            await _persist_file_ast_to_age(engine, ast)
+            print(f"Persisted AST to {GRAPH_NAME}")
         finally:
             await engine.dispose()
 
