@@ -116,6 +116,26 @@ def _to_cypher_props(props: dict[str, Any]) -> str:
     return "{" + inner + "}"
 
 
+def make_span_key(file_uuid: str, ntype: str, start_byte: int, end_byte: int) -> str:
+    return f"{file_uuid}:{ntype}:{start_byte}:{end_byte}"
+
+
+def compute_shape_hash(node_type: str, source_slice: bytes, child_hashes: list[str]) -> str:
+    h = hashlib.sha256()
+    h.update(b"T|" + node_type.encode("utf-8"))
+    h.update(b"|S|" + source_slice)
+    for ch in child_hashes:
+        h.update(b"|C|" + ch.encode("utf-8"))
+    return h.hexdigest()
+
+
+def _parse_agtype_int(val: Any) -> int:
+    s = str(val)
+    # Extract consecutive digits
+    digits = "".join(ch for ch in s if ch.isdigit())
+    return int(digits) if digits else 0
+
+
 def _get_engine() -> AsyncEngine:
     db_url = os.getenv(
         "DATABASE_URL",
@@ -144,17 +164,41 @@ async def _ensure_graph(engine: AsyncEngine, name: str) -> None:
         )
         count = int(res.scalar_one())
         if count == 0:
-            # Create the graph if it doesn't exist
             await conn.execute(text(f"SELECT create_graph('{name}')"))
+
+        # Create edge guard table for ordered, idempotent edges
+        await conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS ast_edge_guard
+                (
+                    parent_id   BIGINT NOT NULL,
+                    child_id    BIGINT NOT NULL,
+                    child_index INT    NOT NULL,
+                    PRIMARY KEY (parent_id, child_id),
+                    UNIQUE (parent_id, child_index)
+                )
+                """
+            )
+        )
 
 
 async def _execute_cypher(engine, cypher: str) -> None:
     async with engine.begin() as conn:
-        # Use a unique dollar-quote tag that won't collide with the payload
         tag = f"q_{uuid.uuid4().hex}"
+        # Use a unique dollar-quote tag that won't collide with the payload
         sql = f"SELECT * FROM ag_catalog.cypher('{GRAPH_NAME}', ${tag}$ {cypher} ${tag}$) AS (ignored agtype)"
         # Bypass SQLAlchemy param parsing
         await conn.exec_driver_sql(sql)
+
+
+async def _fetch_cypher(engine, cypher: str) -> list[tuple[Any, ...]]:
+    async with engine.begin() as conn:
+        tag = f"q_{uuid.uuid4().hex}"
+        sql = f"SELECT * FROM ag_catalog.cypher('{GRAPH_NAME}', ${tag}$ {cypher} ${tag}$) AS (res agtype)"
+        result = await conn.exec_driver_sql(sql)
+        rows = result.fetchall()
+        return rows
 
 
 async def _create_vertex(engine: AsyncEngine, label: str, props: dict[str, Any]) -> None:
@@ -173,43 +217,155 @@ async def _create_edge(
     await _execute_cypher(engine, cypher)
 
 
-async def _persist_ast_node(engine: AsyncEngine, node: AstNode, parent_uuid: str | None = None) -> str:
-    node_uuid = str(uuid.uuid4())
-    await _create_vertex(
-        engine,
-        "AstNode",
-        {
-            "uuid": node_uuid,
-            "type": node.type,
-            "start_byte": node.start_byte,
-            "end_byte": node.end_byte,
-            "start_point": _to_cypher_props(node.start_point.model_dump()),
-            "end_point": _to_cypher_props(node.end_point.model_dump()),
-            "file_uuid": node.file_uuid,
-        },
+# DAG ingest helpers for AstNode identity and edges
+async def db_lookup_node_id_by_span(engine: AsyncEngine, span_key: str) -> int | None:
+    cypher = "MATCH (n:AstNode {span_key: '" + _escape_str(span_key) + "'}) RETURN id(n) LIMIT 1"
+    rows = await _fetch_cypher(engine, cypher)
+    if rows:
+        return _parse_agtype_int(rows[0][0])
+    return None
+
+
+async def db_lookup_node_id_by_shape(engine: AsyncEngine, shape_hash: str) -> int | None:
+    cypher = "MATCH (n:AstNode {shape_hash: '" + _escape_str(shape_hash) + "'}) RETURN id(n) LIMIT 1"
+    rows = await _fetch_cypher(engine, cypher)
+    if rows:
+        return _parse_agtype_int(rows[0][0])
+    return None
+
+
+async def db_insert_ast_node(engine: AsyncEngine, props: dict[str, Any]) -> int:
+    # Try match first (by span_key)
+    span_key = props.get("span_key")
+    if span_key:
+        existing = await db_lookup_node_id_by_span(engine, span_key)
+        if existing is not None:
+            return existing
+    # Create new
+    props_cypher = _to_cypher_props(props)
+    cypher_create = f"CREATE (n:AstNode {props_cypher}) RETURN id(n)"
+    rows = await _fetch_cypher(engine, cypher_create)
+    return _parse_agtype_int(rows[0][0])
+
+
+async def db_upsert_parent_of(engine: AsyncEngine, parent_id: int, child_id: int, child_index: int) -> None:
+    # Edge guard to ensure (parent, child) uniqueness and ordered child_index uniqueness per parent
+    async with engine.begin() as conn:
+        # TODO implement proper transactional semantics and decide about what to do if the edge already exists
+        await conn.execute(
+            text(
+                """
+                INSERT INTO ast_edge_guard(parent_id, child_id, child_index)
+                VALUES (:p, :c, :i)
+                ON CONFLICT (parent_id, child_id) DO NOTHING
+                """
+            ),
+            {"p": parent_id, "c": child_id, "i": child_index},
+        )
+    # Mirror into AGE graph with MERGE and set child_index
+    cypher = (
+        f"MATCH (p) WHERE id(p) = {parent_id} "
+        f"MATCH (c) WHERE id(c) = {child_id} "
+        f"MERGE (p)-[e:PARENT_OF]->(c) SET e.child_index = {child_index} RETURN id(e)"
     )
+    await _execute_cypher(engine, cypher)
 
-    if parent_uuid is not None:
-        await _create_edge(engine, "AstNode", node_uuid, "HAS_PARENT", "AstNode", parent_uuid)
 
+class _IngestCaches:
+    def __init__(self) -> None:
+        self.node_id_by_span: dict[str, int] = {}
+        self.node_id_by_shape: dict[str, int] = {}
+
+
+async def _ingest_node(
+    engine: AsyncEngine,
+    node: AstNode,
+    file_uuid: str,
+    source_bytes: bytes,
+    caches: _IngestCaches,
+    occurrences: list[tuple[int, int, int]],
+) -> tuple[int, str | None]:
+    # 1) process children first
+    child_ids: list[int] = []
+    child_shapes: list[str] = []
     if node.children:
         for child in node.children:
-            child_uuid = await _persist_ast_node(engine, child, parent_uuid=node_uuid)
-            await _create_edge(engine, "AstNode", node_uuid, "HAS_CHILD", "AstNode", child_uuid)
+            cid, cshape = await _ingest_node(engine, child, file_uuid, source_bytes, caches, occurrences)
+            child_ids.append(cid)
+            if cshape:
+                child_shapes.append(cshape)
 
-    return node_uuid
+    # 2) keys
+    span_key = make_span_key(file_uuid, node.type, node.start_byte, node.end_byte)
+    src_slice = source_bytes[node.start_byte : node.end_byte]
+    shash = compute_shape_hash(node.type, src_slice, child_shapes)
+
+    # 3) lookup-or-create
+    nid = caches.node_id_by_span.get(span_key)
+    if nid is None:
+        nid = await db_lookup_node_id_by_span(engine, span_key)
+    if nid is None and shash:
+        nid = caches.node_id_by_shape.get(shash) or await db_lookup_node_id_by_shape(engine, shash)
+
+    if nid is None:
+        nid = await db_insert_ast_node(
+            engine,
+            {
+                "file_uuid": file_uuid,
+                "type": node.type,
+                "start_byte": node.start_byte,
+                "end_byte": node.end_byte,
+                "start_row": node.start_point.row,
+                "start_col": node.start_point.column,
+                "end_row": node.end_point.row,
+                "end_col": node.end_point.column,
+                "span_key": span_key,
+                "shape_hash": shash,
+            },
+        )
+    caches.node_id_by_span[span_key] = nid
+    if shash:
+        caches.node_id_by_shape.setdefault(shash, nid)
+
+    # 4) ordered edges
+    for idx, cid in enumerate(child_ids):
+        await db_upsert_parent_of(engine, nid, cid, idx)
+
+    # 5) record occurrence and return
+    occurrences.append((nid, node.start_byte, node.end_byte))
+    return nid, shash
 
 
-async def _persist_file_ast_to_age(engine: AsyncEngine, fa: FileAst) -> None:
+async def _persist_file_ast_to_age(engine: AsyncEngine, fa: FileAst, file_path: str) -> None:
     await _ensure_graph(engine, GRAPH_NAME)
 
-    file_node_uuid = str(uuid.uuid4())
-    await _create_vertex(
-        engine, "FileAst", {"uuid": file_node_uuid, "language": fa.language, "file_uuid": fa.file_uuid}
+    # Create or get FileVersion node (MERGE on commit_id+file_uuid+path)
+    commit_id = "local"
+    ts_iso = datetime.now(UTC).isoformat()
+    cypher_fv = (
+        f"MERGE (fv:FileVersion {{commit_id: '{_escape_str(commit_id)}', file_uuid: '{_escape_str(fa.file_uuid)}', "
+        f"path: '{_escape_str(file_path)}'}}) "
+        f"SET fv.language = '{_escape_str(fa.language)}', fv.ts = '{_escape_str(ts_iso)}' "
+        f"RETURN id(fv)"
     )
+    fv_rows = await _fetch_cypher(engine, cypher_fv)
+    file_version_id = _parse_agtype_int(fv_rows[0][0]) if fv_rows else 0
 
-    root_uuid = await _persist_ast_node(engine, fa.ast, file_node_uuid)
-    await _create_edge(engine, "FileAst", file_node_uuid, "HAS_AST", "AstNode", root_uuid)
+    caches = _IngestCaches()
+    occurrences: list[tuple[int, int, int]] = []
+    source_bytes = Path(file_path).read_bytes()
+    await _ingest_node(engine, fa.ast, fa.file_uuid, source_bytes, caches, occurrences)
+
+    # Create OCCURS_IN edges per occurrence
+    for nid, start_b, end_b in occurrences:
+        cypher_occurs = (
+            f"MATCH (n) WHERE id(n) = {nid} "
+            f"MATCH (fv) WHERE id(fv) = {file_version_id} "
+            f"MERGE (n)-[r:OCCURS_IN {{commit_id: '{_escape_str(commit_id)}', file_uuid: '{_escape_str(fa.file_uuid)}',"
+            f" start_byte: {start_b}, end_byte: {end_b}}}]->(fv) "
+            f"RETURN id(r)"
+        )
+        await _execute_cypher(engine, cypher_occurs)
 
 
 async def _ensure_files_table(engine: AsyncEngine) -> None:
@@ -288,7 +444,7 @@ def main() -> None:
             ast = _extract_ast_from_file(file_path, file_uuid)
             print(f"Extracted AST from {file_path}")
 
-            await _persist_file_ast_to_age(engine, ast)
+            await _persist_file_ast_to_age(engine, ast, file_path)
             print(f"Persisted AST to {GRAPH_NAME}")
         finally:
             await engine.dispose()
