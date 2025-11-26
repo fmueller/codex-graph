@@ -1,8 +1,8 @@
-FROM apache/age:release_PG16_1.6.0 AS builder
+FROM apache/age:release_PG17_1.6.0 AS builder
 
 # Default to amd64 unless overridden by build args (e.g. buildx)
 ARG TARGETARCH=amd64
-ENV PG_MAJOR=16
+ENV PG_MAJOR=17
 ENV PG_HOME=/usr/lib/postgresql/${PG_MAJOR}
 ENV PG_CONFIG=${PG_HOME}/bin/pg_config
 ENV PGVECTOR_VERSION=0.8.1
@@ -24,7 +24,7 @@ RUN cd /pgvector-src \
  && make PG_CONFIG=${PG_CONFIG} CFLAGS="${CFLAGS}" \
  && make install DESTDIR=/pgvector-build/install PG_CONFIG=${PG_CONFIG}
 
-FROM apache/age:release_PG16_1.6.0
+FROM apache/age:release_PG17_1.6.0
 
 COPY --from=builder /pgvector-build/install/ /
 
