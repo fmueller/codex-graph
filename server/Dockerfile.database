@@ -1,6 +1,7 @@
 FROM apache/age:release_PG16_1.6.0 AS builder
 
-ARG TARGETARCH
+# Default to amd64 unless overridden by build args (e.g. buildx)
+ARG TARGETARCH=amd64
 ENV PG_MAJOR=16
 ENV PG_HOME=/usr/lib/postgresql/${PG_MAJOR}
 ENV PG_CONFIG=${PG_HOME}/bin/pg_config
