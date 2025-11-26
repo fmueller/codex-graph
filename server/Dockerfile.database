@@ -1,4 +1,4 @@
-FROM apache/age:release_PG16_1.6.0
+FROM apache/age:release_PG16_1.6.0 AS builder
 
 ARG TARGETARCH
 ENV PG_MAJOR=16
@@ -11,18 +11,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       postgresql-server-dev-${PG_MAJOR} \
  && rm -rf /var/lib/apt/lists/*
 
+RUN git clone --branch v${PGVECTOR_VERSION} --depth 1 https://github.com/pgvector/pgvector.git /pgvector-src
+
 # Build pgvector with safe CPU flags chosen per target architecture
-RUN cd /tmp \
- && git clone --branch v${PGVECTOR_VERSION} --depth 1 https://github.com/pgvector/pgvector.git \
- && cd /tmp/pgvector \
+RUN cd /pgvector-src \
  && case "${TARGETARCH}" in \
       arm64) CFLAGS="-O2 -fno-strict-aliasing -fPIC -fvisibility=hidden -march=armv8-a" ;; \
       amd64) CFLAGS="-O2 -fno-strict-aliasing -fPIC -fvisibility=hidden -march=x86-64 -mtune=generic" ;; \
       *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac \
  && make PG_CONFIG=${PG_CONFIG} CFLAGS="${CFLAGS}" \
- && make install PG_CONFIG=${PG_CONFIG} \
- && rm -rf /tmp/pgvector
+ && make install DESTDIR=/pgvector-build/install PG_CONFIG=${PG_CONFIG}
+
+FROM apache/age:release_PG16_1.6.0
+
+COPY --from=builder /pgvector-build/install/ /
 
 # Initialize AGE and pgvector on first run
 RUN mkdir -p /docker-entrypoint-initdb.d
