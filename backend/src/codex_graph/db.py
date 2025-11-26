@@ -314,18 +314,32 @@ async def _persist_file(engine: AsyncEngine, path: str) -> str:
         content = file_path.read_bytes().decode("utf-8", errors="replace")
 
     content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
-    # TODO lookup if file exists in DB with same hash and return UUID if so
-
-    stat = file_path.stat()
-    # Note: st_ctime is platform-dependent; acceptable for now.
-    created_dt = datetime.fromtimestamp(stat.st_ctime, tz=UTC)
-    modified_dt = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
-
-    file_uuid = uuid.uuid4()
 
     await _ensure_files_table(engine)
 
     async with engine.begin() as conn:
+        # Avoid re-ingesting identical content at the same path
+        existing = await conn.execute(
+            text(
+                """
+                SELECT id FROM files
+                WHERE full_path = :full_path AND content_hash = :content_hash
+                LIMIT 1
+                """
+            ),
+            {"full_path": full_path, "content_hash": content_hash},
+        )
+        existing_id = existing.scalar_one_or_none()
+        if existing_id is not None:
+            return str(existing_id)
+
+        stat = file_path.stat()
+        # Note: st_ctime is platform-dependent; acceptable for now.
+        created_dt = datetime.fromtimestamp(stat.st_ctime, tz=UTC)
+        modified_dt = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
+
+        file_uuid = uuid.uuid4()
+
         await conn.execute(
             text(
                 """
