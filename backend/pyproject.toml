@@ -7,15 +7,15 @@ authors = [
 ]
 license = {text = "Apache License 2.0"}
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<4"
 dependencies = [
-    "langchain (>=0.3.27,<0.4.0)",
-    "langchain-ollama (>=0.3.8,<0.4.0)",
-    "tree-sitter (>=0.25.1,<0.26.0)",
-    "tree-sitter-language-pack (>=0.9.0,<0.10.0)",
-    "sqlalchemy[asyncio] (>=2.0.43,<3.0.0)",
-    "asyncpg (>=0.30.0,<0.31.0)",
-    "alembic (>=1.16.5,<2.0.0)",
+    "langchain>=1.2.6,<2",
+    "langchain-ollama>=1.0.1,<2",
+    "tree-sitter>=0.25.2,<1",
+    "tree-sitter-language-pack>=0.13.0,<1",
+    "sqlalchemy[asyncio]>=2.0.45,<3",
+    "asyncpg>=0.31.0,<1",
+    "alembic>=1.18.1,<2",
 ]
 
 [project.scripts]

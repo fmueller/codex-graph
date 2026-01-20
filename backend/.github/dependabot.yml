@@ -19,7 +19,7 @@ updates:
       - "python"
       - "dependencies"
     groups:
-      python-dependencies:
+      python-minor-patch:
         patterns:
           - "*"
         update-types:
