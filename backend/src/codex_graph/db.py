@@ -1,7 +1,7 @@
 import hashlib
 import os
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -100,7 +100,7 @@ async def _ensure_graph(engine: AsyncEngine, name: str) -> None:
         )
 
 
-async def _execute_cypher(engine, cypher: str) -> None:
+async def _execute_cypher(engine: AsyncEngine, cypher: str) -> None:
     async with engine.begin() as conn:
         tag = f"q_{uuid.uuid4().hex}"
         # Use a unique dollar-quote tag that won't collide with the payload
@@ -109,13 +109,13 @@ async def _execute_cypher(engine, cypher: str) -> None:
         await conn.exec_driver_sql(sql)
 
 
-async def _fetch_cypher(engine, cypher: str) -> list[tuple[Any, ...]]:
+async def _fetch_cypher(engine: AsyncEngine, cypher: str) -> list[tuple[Any, ...]]:
     async with engine.begin() as conn:
         tag = f"q_{uuid.uuid4().hex}"
         sql = f"SELECT * FROM ag_catalog.cypher('{GRAPH_NAME}', ${tag}$ {cypher} ${tag}$) AS (res agtype)"
         result = await conn.exec_driver_sql(sql)
         rows = result.fetchall()
-        return rows
+        return [tuple(row) for row in rows]
 
 
 async def _create_vertex(engine: AsyncEngine, label: str, props: dict[str, Any]) -> None:
@@ -258,7 +258,7 @@ async def _persist_file_ast_to_age(engine: AsyncEngine, fa: FileAst, file_path: 
 
     # Create or get FileVersion node (MERGE on commit_id+file_uuid+path)
     commit_id = "local"
-    ts_iso = datetime.now(UTC).isoformat()
+    ts_iso = datetime.now(timezone.utc).isoformat()
     cypher_fv = (
         f"MERGE (fv:FileVersion {{commit_id: '{_escape_str(commit_id)}', file_uuid: '{_escape_str(fa.file_uuid)}', "
         f"path: '{_escape_str(file_path)}'}}) "
@@ -335,8 +335,8 @@ async def _persist_file(engine: AsyncEngine, path: str) -> str:
 
         stat = file_path.stat()
         # Note: st_ctime is platform-dependent; acceptable for now.
-        created_dt = datetime.fromtimestamp(stat.st_ctime, tz=UTC)
-        modified_dt = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
+        created_dt = datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc)
+        modified_dt = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
 
         file_uuid = uuid.uuid4()
 

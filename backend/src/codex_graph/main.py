@@ -1,7 +1,7 @@
 import asyncio
 from pathlib import Path
 
-from tree_sitter import Query, QueryCursor
+from tree_sitter import Node, Query, QueryCursor
 from tree_sitter_language_pack import get_language, get_parser
 
 from codex_graph.db import GRAPH_NAME, _get_engine, _persist_file, _persist_file_ast_to_age
@@ -42,7 +42,7 @@ def _extract_ast_from_file(path: str, file_uuid: str) -> FileAst:
 
     root = tree.root_node
 
-    def node_to_model(node) -> AstNode:
+    def node_to_model(node: Node) -> AstNode:
         children = None
         if node.child_count > 0:
             children = [node_to_model(child) for child in node.children]
