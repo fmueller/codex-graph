@@ -36,10 +36,10 @@
   name: (identifier) @def.func.name) @def.func
 
 (method_declaration
-  name: (field_identifier) @def.method.name
   receiver: (parameter_list
     (parameter_declaration
-      type: (_) @def.method.recv.type))) @def.method
+      type: (_) @def.method.recv.type))
+  name: (field_identifier) @def.method.name) @def.method
 
 ;; -------------------------
 ;; Imports

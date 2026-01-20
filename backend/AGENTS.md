@@ -25,6 +25,19 @@
 - Cover the ingest path: file persistence, AST hashing, and AGE edge creation. Prefer deterministic fixtures (small sample `.py` files) over large fixtures.
 - Add regression tests for bugs before fixes and ensure graph queries assert both node properties and relationships.
 
+## Mandatory Quality Checks
+
+**IMPORTANT:** After any code change, you MUST run the following commands before considering a task complete:
+
+```bash
+poetry run ruff format   # Format code
+poetry run ruff check    # Lint code
+poetry run mypy          # Type check
+poetry run pytest        # Run tests
+```
+
+All commands must pass without errors. Fix any issues before completing the task.
+
 ## Commit & Pull Request Guidelines
 - Commit messages follow conventional commits (`feat:`, `refactor:`, `build:`). Keep scope small and logically grouped.
 - PRs should describe intent, list key changes, and mention DB or schema impacts. Link issues/tickets; include screenshots or sample CLI output when behavior changes.

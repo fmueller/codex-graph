@@ -36,10 +36,10 @@
   name: (identifier) @def.func.name) @def.func
 
 (method_declaration
-  name: (field_identifier) @def.method.name
   receiver: (parameter_list
     (parameter_declaration
-      type: (_) @def.method.recv.type))) @def.method
+      type: (_) @def.method.recv.type))
+  name: (field_identifier) @def.method.name) @def.method
 
 ;; -------------------------
 ;; Imports
@@ -226,12 +226,10 @@
   field: (field_identifier) @use.attr.name) @use.attr
 
 ;; =========================
-;; Type assertions and conversions
+;; Type assertions
 ;; =========================
 
-(type_assertion) @use.type.assert
-
-(type_conversion_expression) @use.type.conv
+(type_assertion_expression) @use.type.assert
 
 ;; =========================
 ;; Composite literals (struct/map/slice instantiation)

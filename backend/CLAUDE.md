@@ -78,3 +78,23 @@ docker run -p 5432:5432 codex-graph-db
 - Double quotes for strings
 - Mypy strict mode with full type hints
 - Commit messages: conventional commits (`feat:`, `refactor:`, `build:`)
+
+## Mandatory Quality Checks
+
+**IMPORTANT:** After any code change, you MUST run the following commands before considering a task complete:
+
+```bash
+# 1. Format code
+poetry run ruff format
+
+# 2. Lint code
+poetry run ruff check
+
+# 3. Type check
+poetry run mypy
+
+# 4. Run tests
+poetry run pytest
+```
+
+All commands must pass without errors. Fix any issues before completing the task.
