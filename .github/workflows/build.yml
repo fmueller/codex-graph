@@ -21,16 +21,21 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version-file: ".python-version"
+          python-version-file: "backend/.python-version"
           cache: "poetry"
+          cache-dependency-path: "backend/poetry.lock"
       - name: Install dependencies
         run: poetry install
+        working-directory: backend
       - name: Run ruff format check
         run: poetry run ruff format --check
+        working-directory: backend
       - name: Run ruff lint
         run: poetry run ruff check
+        working-directory: backend
       - name: Run mypy
         run: poetry run mypy
+        working-directory: backend
 
   test:
     name: Test (Python ${{ matrix.python-version }})
@@ -50,7 +55,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: "poetry"
+          cache-dependency-path: "backend/poetry.lock"
       - name: Install dependencies
         run: poetry install
+        working-directory: backend
       - name: Run tests
         run: poetry run pytest -v
+        working-directory: backend
