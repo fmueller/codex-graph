@@ -2,19 +2,19 @@
 
 [[package]]
 name = "alembic"
-version = "1.18.1"
+version = "1.18.3"
 description = "A database migration tool for SQLAlchemy."
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "alembic-1.18.1-py3-none-any.whl", hash = "sha256:f1c3b0920b87134e851c25f1f7f236d8a332c34b75416802d06971df5d1b7810"},
-    {file = "alembic-1.18.1.tar.gz", hash = "sha256:83ac6b81359596816fb3b893099841a0862f2117b2963258e965d70dc62fb866"},
+    {file = "alembic-1.18.3-py3-none-any.whl", hash = "sha256:12a0359bfc068a4ecbb9b3b02cf77856033abfdb59e4a5aca08b7eacd7b74ddd"},
+    {file = "alembic-1.18.3.tar.gz", hash = "sha256:1212aa3778626f2b0f0aa6dd4e99a5f99b94bd25a0c1ac0bba3be65e081e50b0"},
 ]
 
 [package.dependencies]
 Mako = "*"
-SQLAlchemy = ">=1.4.0"
+SQLAlchemy = ">=1.4.23"
 tomli = {version = "*", markers = "python_version < \"3.11\""}
 typing-extensions = ">=4.12"
 
@@ -520,19 +520,19 @@ files = [
 
 [[package]]
 name = "langchain"
-version = "1.2.6"
+version = "1.2.8"
 description = "Building applications with LLMs through composability"
 optional = false
 python-versions = "<4.0.0,>=3.10.0"
 groups = ["main"]
 files = [
-    {file = "langchain-1.2.6-py3-none-any.whl", hash = "sha256:a9a6c39f03c09b6eb0f1b47e267ad2a2fd04e124dfaa9753bd6c11d2fe7d944e"},
-    {file = "langchain-1.2.6.tar.gz", hash = "sha256:7d46cbf719d860a16f6fc182d5d3de17453dda187f3d43e9c40ac352a5094fdd"},
+    {file = "langchain-1.2.8-py3-none-any.whl", hash = "sha256:74a9595420b90e2fd6dc42e323e5e6c9f2a5d059b0ab51e4ad383893b86f8fbe"},
+    {file = "langchain-1.2.8.tar.gz", hash = "sha256:d2bc45f8279f6291b152f28df3bb060b27c9a71163fe2e2a1ac878bd314d0dec"},
 ]
 
 [package.dependencies]
-langchain-core = ">=1.2.7,<2.0.0"
-langgraph = ">=1.0.2,<1.1.0"
+langchain-core = ">=1.2.8,<2.0.0"
+langgraph = ">=1.0.7,<1.1.0"
 pydantic = ">=2.7.4,<3.0.0"
 
 [package.extras]
@@ -555,20 +555,20 @@ xai = ["langchain-xai"]
 
 [[package]]
 name = "langchain-core"
-version = "1.2.7"
+version = "1.2.8"
 description = "Building applications with LLMs through composability"
 optional = false
 python-versions = "<4.0.0,>=3.10.0"
 groups = ["main"]
 files = [
-    {file = "langchain_core-1.2.7-py3-none-any.whl", hash = "sha256:452f4fef7a3d883357b22600788d37e3d8854ef29da345b7ac7099f33c31828b"},
-    {file = "langchain_core-1.2.7.tar.gz", hash = "sha256:e1460639f96c352b4a41c375f25aeb8d16ffc1769499fb1c20503aad59305ced"},
+    {file = "langchain_core-1.2.8-py3-none-any.whl", hash = "sha256:c732301272d63cfbcd75d114540257678627878f11b87046241272a25ba12ea7"},
+    {file = "langchain_core-1.2.8.tar.gz", hash = "sha256:76d933c3f4cfd8484d8131c39bf25f562e2df4d0d5fe3218e05ff773210713b6"},
 ]
 
 [package.dependencies]
 jsonpatch = ">=1.33.0,<2.0.0"
 langsmith = ">=0.3.45,<1.0.0"
-packaging = ">=23.2.0,<26.0.0"
+packaging = ">=23.2.0"
 pydantic = ">=2.7.4,<3.0.0"
 pyyaml = ">=5.3.0,<7.0.0"
 tenacity = ">=8.1.0,<8.4.0 || >8.4.0,<10.0.0"
@@ -593,20 +593,20 @@ ollama = ">=0.6.0,<1.0.0"
 
 [[package]]
 name = "langgraph"
-version = "1.0.6"
+version = "1.0.7"
 description = "Building stateful, multi-actor applications with LLMs"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "langgraph-1.0.6-py3-none-any.whl", hash = "sha256:bcfce190974519c72e29f6e5b17f0023914fd6f936bfab8894083215b271eb89"},
-    {file = "langgraph-1.0.6.tar.gz", hash = "sha256:dd8e754c76d34a07485308d7117221acf63990e7de8f46ddf5fe256b0a22e6c5"},
+    {file = "langgraph-1.0.7-py3-none-any.whl", hash = "sha256:9d68e8f8dd8f3de2fec45f9a06de05766d9b075b78fb03171779893b7a52c4d2"},
+    {file = "langgraph-1.0.7.tar.gz", hash = "sha256:0cfdfee51e6e8cfe503ecc7367c73933437c505b03fa10a85c710975c8182d9a"},
 ]
 
 [package.dependencies]
 langchain-core = ">=0.1"
 langgraph-checkpoint = ">=2.1.0,<5.0.0"
-langgraph-prebuilt = ">=1.0.2,<1.1.0"
+langgraph-prebuilt = ">=1.0.7,<1.1.0"
 langgraph-sdk = ">=0.3.0,<0.4.0"
 pydantic = ">=2.7.4"
 xxhash = ">=3.5.0"
@@ -629,14 +629,14 @@ ormsgpack = ">=1.12.0"
 
 [[package]]
 name = "langgraph-prebuilt"
-version = "1.0.6"
+version = "1.0.7"
 description = "Library with high-level APIs for creating and executing LangGraph agents and tools."
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "langgraph_prebuilt-1.0.6-py3-none-any.whl", hash = "sha256:9fdc35048ff4ac985a55bd2a019a86d45b8184551504aff6780d096c678b39ae"},
-    {file = "langgraph_prebuilt-1.0.6.tar.gz", hash = "sha256:c5f6cf0f5a0ac47643d2e26ae6faa38cb28885ecde67911190df9e30c4f72361"},
+    {file = "langgraph_prebuilt-1.0.7-py3-none-any.whl", hash = "sha256:e14923516504405bb5edc3977085bc9622c35476b50c1808544490e13871fe7c"},
+    {file = "langgraph_prebuilt-1.0.7.tar.gz", hash = "sha256:38e097e06de810de4d0e028ffc0e432bb56d1fb417620fb1dfdc76c5e03e4bf9"},
 ]
 
 [package.dependencies]
@@ -1498,31 +1498,30 @@ requests = ">=2.0.1,<3.0.0"
 
 [[package]]
 name = "ruff"
-version = "0.14.13"
+version = "0.15.0"
 description = "An extremely fast Python linter and code formatter, written in Rust."
 optional = false
 python-versions = ">=3.7"
 groups = ["dev"]
 files = [
-    {file = "ruff-0.14.13-py3-none-linux_armv6l.whl", hash = "sha256:76f62c62cd37c276cb03a275b198c7c15bd1d60c989f944db08a8c1c2dbec18b"},
-    {file = "ruff-0.14.13-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:914a8023ece0528d5cc33f5a684f5f38199bbb566a04815c2c211d8f40b5d0ed"},
-    {file = "ruff-0.14.13-py3-none-macosx_11_0_arm64.whl", hash = "sha256:d24899478c35ebfa730597a4a775d430ad0d5631b8647a3ab368c29b7e7bd063"},
-    {file = "ruff-0.14.13-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:9aaf3870f14d925bbaf18b8a2347ee0ae7d95a2e490e4d4aea6813ed15ebc80e"},
-    {file = "ruff-0.14.13-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:ac5b7f63dd3b27cc811850f5ffd8fff845b00ad70e60b043aabf8d6ecc304e09"},
-    {file = "ruff-0.14.13-py3-none-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:78d2b1097750d90ba82ce4ba676e85230a0ed694178ca5e61aa9b459970b3eb9"},
-    {file = "ruff-0.14.13-py3-none-manylinux_2_17_ppc64.manylinux2014_ppc64.whl", hash = "sha256:7d0bf87705acbbcb8d4c24b2d77fbb73d40210a95c3903b443cd9e30824a5032"},
-    {file = "ruff-0.14.13-py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:a3eb5da8e2c9e9f13431032fdcbe7681de9ceda5835efee3269417c13f1fed5c"},
-    {file = "ruff-0.14.13-py3-none-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:642442b42957093811cd8d2140dfadd19c7417030a7a68cf8d51fcdd5f217427"},
-    {file = "ruff-0.14.13-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:4acdf009f32b46f6e8864af19cbf6841eaaed8638e65c8dac845aea0d703c841"},
-    {file = "ruff-0.14.13-py3-none-manylinux_2_31_riscv64.whl", hash = "sha256:591a7f68860ea4e003917d19b5c4f5ac39ff558f162dc753a2c5de897fd5502c"},
-    {file = "ruff-0.14.13-py3-none-musllinux_1_2_aarch64.whl", hash = "sha256:774c77e841cc6e046fc3e91623ce0903d1cd07e3a36b1a9fe79b81dab3de506b"},
-    {file = "ruff-0.14.13-py3-none-musllinux_1_2_armv7l.whl", hash = "sha256:61f4e40077a1248436772bb6512db5fc4457fe4c49e7a94ea7c5088655dd21ae"},
-    {file = "ruff-0.14.13-py3-none-musllinux_1_2_i686.whl", hash = "sha256:6d02f1428357fae9e98ac7aa94b7e966fd24151088510d32cf6f902d6c09235e"},
-    {file = "ruff-0.14.13-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:e399341472ce15237be0c0ae5fbceca4b04cd9bebab1a2b2c979e015455d8f0c"},
-    {file = "ruff-0.14.13-py3-none-win32.whl", hash = "sha256:ef720f529aec113968b45dfdb838ac8934e519711da53a0456038a0efecbd680"},
-    {file = "ruff-0.14.13-py3-none-win_amd64.whl", hash = "sha256:6070bd026e409734b9257e03e3ef18c6e1a216f0435c6751d7a8ec69cb59abef"},
-    {file = "ruff-0.14.13-py3-none-win_arm64.whl", hash = "sha256:7ab819e14f1ad9fe39f246cfcc435880ef7a9390d81a2b6ac7e01039083dd247"},
-    {file = "ruff-0.14.13.tar.gz", hash = "sha256:83cd6c0763190784b99650a20fec7633c59f6ebe41c5cc9d45ee42749563ad47"},
+    {file = "ruff-0.15.0-py3-none-linux_armv6l.whl", hash = "sha256:aac4ebaa612a82b23d45964586f24ae9bc23ca101919f5590bdb368d74ad5455"},
+    {file = "ruff-0.15.0-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:dcd4be7cc75cfbbca24a98d04d0b9b36a270d0833241f776b788d59f4142b14d"},
+    {file = "ruff-0.15.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:d747e3319b2bce179c7c1eaad3d884dc0a199b5f4d5187620530adf9105268ce"},
+    {file = "ruff-0.15.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:650bd9c56ae03102c51a5e4b554d74d825ff3abe4db22b90fd32d816c2e90621"},
+    {file = "ruff-0.15.0-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:a6664b7eac559e3048223a2da77769c2f92b43a6dfd4720cef42654299a599c9"},
+    {file = "ruff-0.15.0-py3-none-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:6f811f97b0f092b35320d1556f3353bf238763420ade5d9e62ebd2b73f2ff179"},
+    {file = "ruff-0.15.0-py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:761ec0a66680fab6454236635a39abaf14198818c8cdf691e036f4bc0f406b2d"},
+    {file = "ruff-0.15.0-py3-none-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:940f11c2604d317e797b289f4f9f3fa5555ffe4fb574b55ed006c3d9b6f0eb78"},
+    {file = "ruff-0.15.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:bcbca3d40558789126da91d7ef9a7c87772ee107033db7191edefa34e2c7f1b4"},
+    {file = "ruff-0.15.0-py3-none-manylinux_2_31_riscv64.whl", hash = "sha256:9a121a96db1d75fa3eb39c4539e607f628920dd72ff1f7c5ee4f1b768ac62d6e"},
+    {file = "ruff-0.15.0-py3-none-musllinux_1_2_aarch64.whl", hash = "sha256:5298d518e493061f2eabd4abd067c7e4fb89e2f63291c94332e35631c07c3662"},
+    {file = "ruff-0.15.0-py3-none-musllinux_1_2_armv7l.whl", hash = "sha256:afb6e603d6375ff0d6b0cee563fa21ab570fd15e65c852cb24922cef25050cf1"},
+    {file = "ruff-0.15.0-py3-none-musllinux_1_2_i686.whl", hash = "sha256:77e515f6b15f828b94dc17d2b4ace334c9ddb7d9468c54b2f9ed2b9c1593ef16"},
+    {file = "ruff-0.15.0-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:6f6e80850a01eb13b3e42ee0ebdf6e4497151b48c35051aab51c101266d187a3"},
+    {file = "ruff-0.15.0-py3-none-win32.whl", hash = "sha256:238a717ef803e501b6d51e0bdd0d2c6e8513fe9eec14002445134d3907cd46c3"},
+    {file = "ruff-0.15.0-py3-none-win_amd64.whl", hash = "sha256:dd5e4d3301dc01de614da3cdffc33d4b1b96fb89e45721f1598e5532ccf78b18"},
+    {file = "ruff-0.15.0-py3-none-win_arm64.whl", hash = "sha256:c480d632cc0ca3f0727acac8b7d053542d9e114a462a145d0b00e7cd658c515a"},
+    {file = "ruff-0.15.0.tar.gz", hash = "sha256:6bdea47cdbea30d40f8f8d7d69c0854ba7c15420ec75a26f463290949d7f7e9a"},
 ]
 
 [[package]]
@@ -2203,4 +2202,4 @@ cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and pyt
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<4"
-content-hash = "118f071f425ac56d12816225cc9b75aeecdfbedc18485dcd974c4ce690f40109"
+content-hash = "ecd76c0022fac4371a8aff3211438d746e1b5a13058142d4287130cef39cf6c8"
