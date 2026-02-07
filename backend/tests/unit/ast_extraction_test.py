@@ -100,25 +100,26 @@ class MyClass:
         assert result.ast.start_point.row == 0
         assert result.ast.start_point.column == 0
 
-    def test_rejects_non_python_file(self, tmp_path: Path) -> None:
-        """Test that non-Python files are rejected."""
+    def test_rejects_unknown_extension(self, tmp_path: Path) -> None:
+        """Test that unsupported extensions are rejected."""
         txt_file = tmp_path / "readme.txt"
         txt_file.write_text("Hello, world!")
 
         file_uuid = "test-uuid-txt"
 
-        with pytest.raises(ValueError, match="Only Python files are supported"):
+        with pytest.raises(ValueError, match="Unsupported file extension"):
             _extract_ast_from_file(str(txt_file), file_uuid)
 
-    def test_rejects_javascript_file(self, tmp_path: Path) -> None:
-        """Test that JavaScript files are rejected."""
+    def test_accepts_javascript_file(self, tmp_path: Path) -> None:
+        """Test that JavaScript files are accepted."""
         js_file = tmp_path / "script.js"
         js_file.write_text("const x = 1;")
 
         file_uuid = "test-uuid-js"
 
-        with pytest.raises(ValueError, match="Only Python files are supported"):
-            _extract_ast_from_file(str(js_file), file_uuid)
+        result = _extract_ast_from_file(str(js_file), file_uuid)
+        assert result.language == "javascript"
+        assert result.ast.type == "program"
 
     def test_raises_file_not_found(self, tmp_path: Path) -> None:
         """Test that missing files raise FileNotFoundError."""

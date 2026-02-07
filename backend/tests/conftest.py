@@ -1,11 +1,16 @@
 """Shared fixtures for tests."""
 
+import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 from tree_sitter import Language, Parser, Query
 from tree_sitter_language_pack import get_language, get_parser
+
+SRC_PATH = Path(__file__).parent.parent / "src"
+if str(SRC_PATH) not in sys.path:
+    sys.path.insert(0, str(SRC_PATH))
 
 
 @pytest.fixture
