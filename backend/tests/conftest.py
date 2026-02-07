@@ -7,6 +7,8 @@ import pytest
 from tree_sitter import Language, Parser, Query
 from tree_sitter_language_pack import get_language, get_parser
 
+from codex_graph.db import InMemoryGraphDatabase
+
 
 @pytest.fixture
 def queries_dir() -> Path:
@@ -64,3 +66,8 @@ def go_high_level_query(queries_dir: Path, go_language: Any) -> Query:
     """Load the Go high-level query."""
     query_text = (queries_dir / "go_high_level.scm").read_text()
     return Query(go_language, query_text)
+
+
+@pytest.fixture
+def in_memory_db() -> InMemoryGraphDatabase:
+    return InMemoryGraphDatabase()

@@ -4,7 +4,7 @@ from pathlib import Path
 from tree_sitter import Node, Query, QueryCursor
 from tree_sitter_language_pack import get_language, get_parser
 
-from codex_graph.db import GRAPH_NAME, _get_engine, _persist_file, _persist_file_ast_to_age
+from codex_graph.db import GRAPH_NAME, PostgresGraphDatabase, _get_engine
 from codex_graph.models import AstNode, FileAst, Position
 
 
@@ -69,17 +69,18 @@ def main() -> None:
 
     async def _runner() -> None:
         engine = _get_engine()
+        database = PostgresGraphDatabase(engine)
         try:
-            file_uuid = await _persist_file(engine, file_path)
+            file_uuid = await database.persist_file(file_path)
             print(f"Persisted file {file_path} with UUID {file_uuid}")
 
             ast = _extract_ast_from_file(file_path, file_uuid)
             print(f"Extracted AST from {file_path}")
 
-            await _persist_file_ast_to_age(engine, ast, file_path)
+            await database.persist_file_ast(ast, file_path)
             print(f"Persisted AST to {GRAPH_NAME}")
         finally:
-            await engine.dispose()
+            await database.dispose()
 
     asyncio.run(_runner())
 
