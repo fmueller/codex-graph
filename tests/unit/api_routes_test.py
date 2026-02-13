@@ -30,9 +30,9 @@ def client(db: InMemoryGraphDatabase) -> TestClient:
     return TestClient(app)
 
 
-class TestHealthRoute:
-    def test_health_returns_ok(self, client: TestClient) -> None:
-        resp = client.get("/health")
+class TestLivenessRoute:
+    def test_liveness_returns_ok(self, client: TestClient) -> None:
+        resp = client.get("/healthz/live")
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
 
