@@ -1,0 +1,99 @@
+[project]
+name = "codex-graph"
+version = "0.1.0"
+description = "Parse, store, and query code ASTs in a graph database."
+authors = [
+    {name = "Felix Müller",email = "felix@fmueller.io"}
+]
+license = {text = "Apache License 2.0"}
+readme = "README.md"
+requires-python = ">=3.10,<4"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Compilers",
+]
+dependencies = [
+    "langchain>=1.2.6,<2",
+    "langchain-ollama>=1.0.1,<2",
+    "tree-sitter>=0.25.2,<1",
+    "tree-sitter-language-pack>=0.13.0,<1",
+    "sqlalchemy[asyncio]>=2.0.45,<3",
+    "asyncpg>=0.31.0,<1",
+    "alembic>=1.18.1,<2",
+    "typer (>=0.15.0,<1)",
+    "rich (>=14.0.0,<15)",
+    "watchfiles (>=1.0.0,<2)",
+    "fastapi (>=0.115.0,<1)",
+    "uvicorn[standard] (>=0.34.0,<1)",
+    "fastmcp (>=2.0.0,<3)",
+    "dash (>=3.0.0,<4)",
+    "dash-cytoscape (>=1.0.0,<2)",
+]
+
+[project.scripts]
+codex-graph = "codex_graph.cli.app:main"
+
+[project.urls]
+Repository = "https://github.com/fmueller/codex-graph"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+packages = [{ include = "codex_graph", from = "src" }]
+
+[tool.poetry.group.dev.dependencies]
+mypy = "^1.19.1"
+ruff = "^0.15.0"
+pre-commit = "^4.5.1"
+pytest = "^9.0.2"
+pytest-asyncio = ">=1.0,<2"
+testcontainers = "^4.10"
+httpx = ">=0.28.0"
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "UP",
+    "B",
+    "SIM",
+    "I",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/codex_graph/api/**/*.py" = ["B008"]  # Depends() in function defaults is standard FastAPI
+
+[tool.mypy]
+python_version = "3.10"
+mypy_path = "src"
+files = "src/**/*.py,tests/**/*.py"
+strict = true
+check_untyped_defs = true
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["testcontainers.core.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+log_cli = true
+log_cli_level = "INFO"
+markers = [
+    "unit: Unit tests (no external deps)",
+    "integration: Integration tests (require Docker)",
+]
