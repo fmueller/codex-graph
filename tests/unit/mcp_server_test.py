@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+
 from codex_graph.db.memory import InMemoryGraphDatabase
 from codex_graph.mcp.server import create_mcp_server
 
@@ -23,3 +25,12 @@ class TestMcpServerCreation:
         assert "find_nodes" in tool_names
         assert "children" in tool_names
         assert "cypher" in tool_names
+
+    def test_cypher_tool_columns_defaults_to_none(self) -> None:
+        """The MCP cypher tool should auto-detect columns (default None)."""
+        db = InMemoryGraphDatabase()
+        server = create_mcp_server(db)
+        cypher_tool = server._tool_manager._tools["cypher"]
+        fn = cypher_tool.fn  # type: ignore[attr-defined]
+        sig = inspect.signature(fn)
+        assert sig.parameters["columns"].default is None

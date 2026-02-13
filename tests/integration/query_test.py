@@ -2,10 +2,13 @@
 
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
+from typer.testing import CliRunner
 
+from codex_graph.cli.app import app
 from codex_graph.core.ingest import run_ingest
 from codex_graph.core.query import query_children, query_cypher, query_files, query_node_types, query_nodes
 from codex_graph.db import PostgresGraphDatabase
@@ -85,6 +88,18 @@ async def test_query_children(db: PostgresGraphDatabase, ingested_file: tuple[st
 
 
 @pytest.mark.asyncio
+async def test_query_cypher_multi_column(db: PostgresGraphDatabase, ingested_file: tuple[str, str]) -> None:
+    """Multi-column Cypher queries auto-detect column count."""
+    _, tmp_path = ingested_file
+    try:
+        rows = await query_cypher(db, "MATCH (n:AstNode) RETURN n.type, count(n)")
+        assert len(rows) > 0
+        assert len(rows[0]) == 2
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
 async def test_query_cypher_passthrough(db: PostgresGraphDatabase, ingested_file: tuple[str, str]) -> None:
     """query_cypher with a raw Cypher query works end-to-end."""
     _, tmp_path = ingested_file
@@ -93,5 +108,21 @@ async def test_query_cypher_passthrough(db: PostgresGraphDatabase, ingested_file
         assert len(rows) == 1
         count = int(str(rows[0][0]).strip('"'))
         assert count > 0
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+
+def test_cli_cypher_multi_column(db: PostgresGraphDatabase, ingested_file: tuple[str, str]) -> None:
+    """CLI 'query cypher' auto-detects column count for multi-column RETURN."""
+    _, tmp_path = ingested_file
+    try:
+        runner = CliRunner()
+        with patch("codex_graph.cli.query._get_database", return_value=db):
+            result = runner.invoke(
+                app,
+                ["query", "cypher", "MATCH (n:AstNode) RETURN n.type, count(n)"],
+            )
+        assert result.exit_code == 0, result.output
+        assert "0 rows" not in result.output
     finally:
         Path(tmp_path).unlink(missing_ok=True)

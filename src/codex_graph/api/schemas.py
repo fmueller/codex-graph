@@ -49,7 +49,7 @@ class ChildRow(BaseModel):
 
 class CypherRequest(BaseModel):
     query: str
-    columns: int = 1
+    columns: int | None = None
 
 
 class CypherResponse(BaseModel):

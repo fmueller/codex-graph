@@ -203,7 +203,7 @@ class PostgresGraphDatabase:
         """Ensure AGE extension is loaded and graph exists."""
         await ensure_graph(self._engine, GRAPH_NAME)
 
-    async def fetch_cypher(self, cypher: str, columns: int = 1) -> list[tuple[Any, ...]]:
+    async def fetch_cypher(self, cypher: str, columns: int | None = None) -> list[tuple[Any, ...]]:
         """Run a read-only Cypher query and return result rows."""
         return await fetch_cypher(self._engine, cypher, columns)
 
