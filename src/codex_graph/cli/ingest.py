@@ -14,7 +14,7 @@ console = Console()
 
 def ingest(
     path: Annotated[str, typer.Argument(help="Path to code file.")] = "src/codex_graph/main.py",
-    code: Annotated[str | None, typer.Option(help="Source code string to ingest instead of a file path.")] = None,
+    code: Annotated[str | None, typer.Option(help="Inline source code to ingest (requires --language).")] = None,
     language: Annotated[str | None, typer.Option(help="Language name or code (e.g. python, js, ts, csharp).")] = None,
 ) -> None:
     """Ingest a code file into the graph."""
