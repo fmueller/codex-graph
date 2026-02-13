@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from codex_graph.dashboard.graph_data import children_to_elements, files_to_elements, nodes_to_elements
+from codex_graph.dashboard.graph_data import (
+    children_to_elements,
+    files_to_elements,
+    node_types_to_elements,
+    nodes_to_elements,
+)
 
 
 class TestFilesToElements:
@@ -40,6 +45,28 @@ class TestNodesToElements:
         assert data["kind"] == "ast_node"
 
 
+class TestNodeTypesToElements:
+    def test_empty(self) -> None:
+        assert node_types_to_elements([]) == []
+
+    def test_single_type(self) -> None:
+        rows = [('"function_definition"',)]
+        elements = node_types_to_elements(rows)
+        assert len(elements) == 1
+        assert elements[0]["data"]["id"] == "function_definition"
+        assert elements[0]["data"]["label"] == "function_definition"
+        assert elements[0]["data"]["kind"] == "ast_node"
+
+    def test_multiple_types(self) -> None:
+        rows = [('"module"',), ('"function_definition"',), ('"identifier"',)]
+        elements = node_types_to_elements(rows)
+        assert len(elements) == 3
+        labels = [e["data"]["label"] for e in elements]
+        assert "module" in labels
+        assert "function_definition" in labels
+        assert "identifier" in labels
+
+
 class TestChildrenToElements:
     def test_empty_children(self) -> None:
         elements = children_to_elements("parent::0:100", [])
@@ -63,6 +90,5 @@ class TestDashboardAppCreation:
         from codex_graph.dashboard.app import create_dashboard
         from codex_graph.db.memory import InMemoryGraphDatabase
 
-        db = InMemoryGraphDatabase()
-        app = create_dashboard(db)
+        app = create_dashboard(lambda: InMemoryGraphDatabase())
         assert app is not None

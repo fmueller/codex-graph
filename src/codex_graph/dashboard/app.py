@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from dash import Dash
 
 from codex_graph.core.ports.database import GraphDatabase
@@ -9,8 +11,8 @@ from codex_graph.dashboard.callbacks import register_callbacks
 from codex_graph.dashboard.layout import build_layout
 
 
-def create_dashboard(db: GraphDatabase) -> Dash:
+def create_dashboard(db_factory: Callable[[], GraphDatabase]) -> Dash:
     app = Dash(__name__)
     app.layout = build_layout()
-    register_callbacks(app, db)
+    register_callbacks(app, db_factory)
     return app

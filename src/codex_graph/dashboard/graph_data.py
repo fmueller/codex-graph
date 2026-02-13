@@ -42,6 +42,23 @@ def nodes_to_elements(rows: list[tuple[Any, ...]]) -> list[dict[str, Any]]:
     return elements
 
 
+def node_types_to_elements(rows: list[tuple[Any, ...]]) -> list[dict[str, Any]]:
+    """Turn single-column node-type rows into Cytoscape node elements."""
+    elements: list[dict[str, Any]] = []
+    for row in rows:
+        node_type = str(row[0]).strip('"')
+        elements.append(
+            {
+                "data": {
+                    "id": node_type,
+                    "label": node_type,
+                    "kind": "ast_node",
+                }
+            }
+        )
+    return elements
+
+
 def children_to_elements(parent_span_key: str, rows: list[tuple[Any, ...]]) -> list[dict[str, Any]]:
     """Turn child rows into Cytoscape node + edge elements."""
     elements: list[dict[str, Any]] = []

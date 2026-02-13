@@ -45,8 +45,10 @@ def dashboard(
     from codex_graph.db.engine import get_engine
     from codex_graph.db.postgres import PostgresGraphDatabase
 
-    db = PostgresGraphDatabase(get_engine())
-    app = create_dashboard(db)
+    def db_factory() -> PostgresGraphDatabase:
+        return PostgresGraphDatabase(get_engine())
+
+    app = create_dashboard(db_factory)
     console.print(f"[green]Starting dashboard on {host}:{port}[/green]")
     app.run(host=host, port=port)
 
@@ -75,7 +77,11 @@ def serve_all(
     db = PostgresGraphDatabase(engine)
 
     api_app = create_app()
-    dash_app = create_dashboard(db)
+
+    def db_factory() -> PostgresGraphDatabase:
+        return PostgresGraphDatabase(get_engine())
+
+    dash_app = create_dashboard(db_factory)
     mcp_server = create_mcp_server(db)
 
     dashboard_port = port + 1
