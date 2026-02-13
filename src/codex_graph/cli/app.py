@@ -9,6 +9,7 @@ app = typer.Typer(
     name="codex-graph",
     help="Codex Graph CLI — ingest and query code ASTs.",
     no_args_is_help=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
 )
 
 app.add_typer(db_app, name="db")
