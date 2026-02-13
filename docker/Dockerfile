@@ -18,6 +18,7 @@ RUN poetry export --without dev --format requirements.txt --output requirements.
     && pip install --no-cache-dir -r requirements.txt
 
 # Install the package itself (source + entry point)
+COPY README.md ./
 COPY src/ src/
 COPY alembic/ alembic/
 COPY alembic.ini ./
