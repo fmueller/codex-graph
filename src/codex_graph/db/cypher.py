@@ -48,7 +48,44 @@ async def execute_cypher(engine: AsyncEngine, cypher: str) -> None:
         await conn.exec_driver_sql(sql)
 
 
-async def fetch_cypher(engine: AsyncEngine, cypher: str, columns: int = 1) -> list[tuple[Any, ...]]:
+def count_return_columns(cypher: str) -> int:
+    """Count the number of top-level RETURN columns in a Cypher query.
+
+    Ignores commas inside parentheses/brackets/braces so that expressions
+    like ``coalesce(a, b)`` are treated as a single column.  Returns 1 when
+    the query has no RETURN clause (e.g. bare CREATE statements).
+    """
+    upper = cypher.upper()
+    idx = upper.rfind("RETURN")
+    if idx == -1:
+        return 1
+    after_return = cypher[idx + len("RETURN") :]
+    stripped = after_return.lstrip()
+    if stripped.upper().startswith("DISTINCT"):
+        stripped = stripped[len("DISTINCT") :]
+    # Trim trailing clauses that are not part of the column list
+    end_keywords = ["ORDER BY", "SKIP", "LIMIT"]
+    end_pos = len(stripped)
+    for kw in end_keywords:
+        pos = stripped.upper().find(kw)
+        if pos != -1 and pos < end_pos:
+            end_pos = pos
+    expr = stripped[:end_pos]
+    depth = 0
+    count = 1
+    for ch in expr:
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            count += 1
+    return count
+
+
+async def fetch_cypher(engine: AsyncEngine, cypher: str, columns: int | None = None) -> list[tuple[Any, ...]]:
+    if columns is None:
+        columns = count_return_columns(cypher)
     async with engine.begin() as conn:
         tag = f"q_{uuid.uuid4().hex}"
         col_defs = ", ".join(f"c{i} agtype" for i in range(columns))

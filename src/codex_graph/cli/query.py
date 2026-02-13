@@ -122,7 +122,7 @@ def children(
 @query_app.command("cypher")
 def cypher(
     query_string: Annotated[str, typer.Argument(help="Cypher query to execute.")],
-    columns: Annotated[int, typer.Option(help="Number of RETURN columns in the query.")] = 1,
+    columns: Annotated[int | None, typer.Option(help="Number of RETURN columns (auto-detected if omitted).")] = None,
 ) -> None:
     """Run a raw Cypher query."""
     db = _get_database()

@@ -70,7 +70,7 @@ def create_mcp_server(db: GraphDatabase) -> FastMCP:
         return [{"span_key": str(r[0]), "type": str(r[1]), "child_index": str(r[2])} for r in rows]
 
     @mcp.tool()
-    async def cypher(query: str, columns: int = 1) -> list[list[Any]]:
+    async def cypher(query: str, columns: int | None = None) -> list[list[Any]]:
         """Run a raw Cypher query."""
         await db.ensure_ready()
         rows = await _query_cypher(db, query, columns)

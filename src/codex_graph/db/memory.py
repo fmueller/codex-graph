@@ -144,7 +144,7 @@ class InMemoryGraphDatabase:
     async def ensure_ready(self) -> None:
         pass
 
-    async def fetch_cypher(self, cypher: str, columns: int = 1) -> list[tuple[Any, ...]]:
+    async def fetch_cypher(self, cypher: str, columns: int | None = None) -> list[tuple[Any, ...]]:
         return []
 
     async def list_files(self, limit: int = 50) -> list[tuple[str, str, str, str]]:

@@ -53,5 +53,5 @@ async def query_children(database: GraphDatabase, span_key: str, limit: int = 50
     return await database.fetch_cypher(cypher, columns=3)
 
 
-async def query_cypher(database: GraphDatabase, query_string: str, columns: int = 1) -> list[tuple[Any, ...]]:
+async def query_cypher(database: GraphDatabase, query_string: str, columns: int | None = None) -> list[tuple[Any, ...]]:
     return await database.fetch_cypher(query_string, columns=columns)

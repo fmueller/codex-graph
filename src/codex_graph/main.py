@@ -93,7 +93,7 @@ def _build_parser() -> argparse.ArgumentParser:
     cypher_parser = query_sub.add_parser("cypher", help="Run a raw Cypher query.")
     cypher_parser.add_argument("query_string", help="Cypher query to execute.")
     cypher_parser.add_argument(
-        "--columns", type=int, default=1, help="Number of RETURN columns in the query (default 1)."
+        "--columns", type=int, default=None, help="Number of RETURN columns (auto-detected if omitted)."
     )
 
     return parser

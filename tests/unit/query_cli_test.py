@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from codex_graph.db.cypher import count_return_columns
 from codex_graph.main import _build_parser, _print_table, _run_query
 
 # -- Step 1: CLI argument parsing tests --
@@ -210,7 +211,7 @@ def test_query_cypher_passthrough(capsys: pytest.CaptureFixture[str]) -> None:
     args = parser.parse_args(["query", "cypher", "MATCH (n) RETURN n.type LIMIT 5"])
 
     asyncio.run(_run_query(args, mock_db))
-    mock_db.fetch_cypher.assert_called_once_with("MATCH (n) RETURN n.type LIMIT 5", columns=1)
+    mock_db.fetch_cypher.assert_called_once_with("MATCH (n) RETURN n.type LIMIT 5", columns=None)
 
 
 # -- Step 4: db.py method existence tests --
@@ -235,3 +236,32 @@ def test_postgres_db_has_ensure_ready() -> None:
 
     assert hasattr(PostgresGraphDatabase, "ensure_ready")
     assert callable(PostgresGraphDatabase.ensure_ready)
+
+
+# -- Step 5: count_return_columns unit tests --
+
+
+class TestCountReturnColumns:
+    def test_single_column(self) -> None:
+        assert count_return_columns("MATCH (n) RETURN n") == 1
+
+    def test_two_columns(self) -> None:
+        assert count_return_columns("MATCH (n) RETURN labels(n), count(*)") == 2
+
+    def test_three_columns(self) -> None:
+        assert count_return_columns("MATCH (n) RETURN n.name, n.type, count(*)") == 3
+
+    def test_nested_parens(self) -> None:
+        assert count_return_columns("MATCH (n) RETURN coalesce(n.a, n.b), n.c") == 2
+
+    def test_with_distinct(self) -> None:
+        assert count_return_columns("MATCH (n) RETURN DISTINCT n.type") == 1
+
+    def test_with_limit(self) -> None:
+        assert count_return_columns("MATCH (n) RETURN n.type, n.name LIMIT 10") == 2
+
+    def test_with_order_by(self) -> None:
+        assert count_return_columns("MATCH (n) RETURN n.a, n.b ORDER BY n.a") == 2
+
+    def test_no_return(self) -> None:
+        assert count_return_columns("CREATE (n:Foo)") == 1
