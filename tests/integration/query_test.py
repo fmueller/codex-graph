@@ -112,12 +112,21 @@ async def test_query_cypher_passthrough(db: PostgresGraphDatabase, ingested_file
         Path(tmp_path).unlink(missing_ok=True)
 
 
-def test_cli_cypher_multi_column(db: PostgresGraphDatabase, ingested_file: tuple[str, str]) -> None:
+def test_cli_cypher_multi_column(
+    ingested_file: tuple[str, str],
+    test_db_url: str,
+) -> None:
     """CLI 'query cypher' auto-detects column count for multi-column RETURN."""
+    from sqlalchemy.ext.asyncio import create_async_engine
+
     _, tmp_path = ingested_file
     try:
         runner = CliRunner()
-        with patch("codex_graph.cli.query._get_database", return_value=db):
+
+        def _fresh_db() -> PostgresGraphDatabase:
+            return PostgresGraphDatabase(create_async_engine(test_db_url, future=True))
+
+        with patch("codex_graph.cli.query._get_database", side_effect=_fresh_db):
             result = runner.invoke(
                 app,
                 ["query", "cypher", "MATCH (n:AstNode) RETURN n.type, count(n)"],
