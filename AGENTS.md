@@ -99,16 +99,14 @@ codex-graph serve [--host HOST] [--port PORT]  # starts all
 
 ## Mandatory Quality Checks
 
-**IMPORTANT:** After any code change, you MUST run the following commands before considering a task complete:
+**After every task that changes code, run these checks before considering the task complete.** Execute them in order — each step must pass before moving to the next.
 
-```bash
-poetry run ruff format   # Format code
-poetry run ruff check    # Lint code
-poetry run mypy          # Type check
-poetry run pytest        # Run tests
-```
+1. **Format** — `poetry run ruff format`
+2. **Lint** — `poetry run ruff check --fix` then verify with `poetry run ruff check`
+3. **Type-check** — `poetry run mypy`
+4. **Test** — `poetry run pytest` (always the full suite)
 
-All commands must pass without errors. Fix any issues before completing the task.
+If any step fails, fix the issue and re-run **all steps from the beginning** to ensure the fix didn't introduce new errors. All four steps must pass with zero errors.
 
 ## Commit & Pull Request Guidelines
 
