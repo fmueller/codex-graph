@@ -21,24 +21,20 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version-file: "backend/.python-version"
+          python-version-file: ".python-version"
           cache: "poetry"
-          cache-dependency-path: "backend/poetry.lock"
+          cache-dependency-path: "poetry.lock"
       - name: Install dependencies
         run: poetry install
-        working-directory: backend
       - name: Run ruff format check
         run: poetry run ruff format --check
-        working-directory: backend
       - name: Run ruff lint
         run: poetry run ruff check
-        working-directory: backend
       - name: Run mypy
         run: poetry run mypy
-        working-directory: backend
 
-  test:
-    name: Test (Python ${{ matrix.python-version }})
+  test-unit:
+    name: Unit Tests (Python ${{ matrix.python-version }})
     needs: lint
     runs-on: ubuntu-latest
     strategy:
@@ -55,10 +51,28 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: "poetry"
-          cache-dependency-path: "backend/poetry.lock"
+          cache-dependency-path: "poetry.lock"
       - name: Install dependencies
         run: poetry install
-        working-directory: backend
-      - name: Run tests
-        run: poetry run pytest -v
-        working-directory: backend
+      - name: Run unit tests
+        run: poetry run pytest tests/unit -v
+
+  test-integration:
+    name: Integration Tests
+    needs: test-unit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Install Poetry
+        run: pipx install poetry
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: ".python-version"
+          cache: "poetry"
+          cache-dependency-path: "poetry.lock"
+      - name: Install dependencies
+        run: poetry install
+      - name: Run integration tests
+        run: poetry run pytest tests/integration -v --timeout=120

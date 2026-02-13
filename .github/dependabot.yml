@@ -12,7 +12,7 @@ updates:
       - "dependencies"
 
   - package-ecosystem: "pip"
-    directory: "/backend"
+    directory: "/"
     schedule:
       interval: "weekly"
     labels:
