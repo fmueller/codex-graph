@@ -225,10 +225,11 @@ async def _execute_cypher(engine: AsyncEngine, cypher: str) -> None:
         await conn.exec_driver_sql(sql)
 
 
-async def _fetch_cypher(engine: AsyncEngine, cypher: str) -> list[tuple[Any, ...]]:
+async def _fetch_cypher(engine: AsyncEngine, cypher: str, columns: int = 1) -> list[tuple[Any, ...]]:
     async with engine.begin() as conn:
         tag = f"q_{uuid.uuid4().hex}"
-        sql = f"SELECT * FROM ag_catalog.cypher('{GRAPH_NAME}', ${tag}$ {cypher} ${tag}$) AS (res agtype)"
+        col_defs = ", ".join(f"c{i} agtype" for i in range(columns))
+        sql = f"SELECT * FROM ag_catalog.cypher('{GRAPH_NAME}', ${tag}$ {cypher} ${tag}$) AS ({col_defs})"
         result = await conn.exec_driver_sql(sql)
         rows = result.fetchall()
         return [tuple(row) for row in rows]
@@ -491,6 +492,24 @@ class PostgresGraphDatabase:
 
     async def persist_file_ast(self, fa: FileAst, file_path: str) -> None:
         await _persist_file_ast_to_age(self._engine, fa, file_path)
+
+    async def ensure_ready(self) -> None:
+        """Ensure AGE extension is loaded and graph exists."""
+        await _ensure_graph(self._engine, GRAPH_NAME)
+
+    async def fetch_cypher(self, cypher: str, columns: int = 1) -> list[tuple[Any, ...]]:
+        """Run a read-only Cypher query and return result rows."""
+        return await _fetch_cypher(self._engine, cypher, columns)
+
+    async def list_files(self, limit: int = 50) -> list[tuple[str, str, str, str]]:
+        """Return (id, full_path, suffix, content_hash_prefix) from the files table."""
+        await _ensure_files_table(self._engine)
+        async with self._engine.begin() as conn:
+            result = await conn.execute(
+                text("SELECT id, full_path, suffix, content_hash FROM public.files ORDER BY full_path LIMIT :lim"),
+                {"lim": limit},
+            )
+            return [(str(row[0]), str(row[1]), str(row[2]), str(row[3])[:12]) for row in result.fetchall()]
 
     async def dispose(self) -> None:
         await self._engine.dispose()
