@@ -7,11 +7,6 @@ from codex_graph.core.ports.database import GraphDatabase
 router = APIRouter()
 
 
-@router.get("/health", response_model=HealthResponse)
-async def health() -> HealthResponse:
-    return HealthResponse()
-
-
 @router.get("/healthz/live", response_model=HealthResponse)
 async def liveness() -> HealthResponse:
     """Liveness probe — is the process alive?"""
