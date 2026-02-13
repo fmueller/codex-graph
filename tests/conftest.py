@@ -7,13 +7,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from alembic.config import Config
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.waiting_utils import wait_for_logs
 from tree_sitter import Language, Parser, Query
 from tree_sitter_language_pack import get_language, get_parser
 
 from alembic import command
-from alembic.config import Config
 from codex_graph.db import InMemoryGraphDatabase
 
 logger = logging.getLogger(__name__)
