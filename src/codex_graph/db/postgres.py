@@ -217,5 +217,13 @@ class PostgresGraphDatabase:
             )
             return [(str(row[0]), str(row[1]), str(row[2]), str(row[3])[:12]) for row in result.fetchall()]
 
+    async def ping(self) -> bool:
+        try:
+            async with self._engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            return True
+        except Exception:
+            return False
+
     async def dispose(self) -> None:
         await self._engine.dispose()

@@ -7,6 +7,11 @@ class HealthResponse(BaseModel):
     status: str = "ok"
 
 
+class ReadinessResponse(BaseModel):
+    status: str = "ok"
+    database: str = "up"
+
+
 class IngestRequest(BaseModel):
     path: str | None = None
     code: str | None = None

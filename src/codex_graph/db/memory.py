@@ -153,6 +153,9 @@ class InMemoryGraphDatabase:
             rows.append((record.file_id, record.full_path, record.suffix, record.content_hash))
         return rows
 
+    async def ping(self) -> bool:
+        return True
+
     async def dispose(self) -> None:
         pass
 
