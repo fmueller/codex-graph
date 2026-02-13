@@ -4,10 +4,10 @@ from collections.abc import AsyncGenerator, Generator
 
 import pytest
 import pytest_asyncio
+from alembic.config import Config
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from testcontainers.core.container import DockerContainer
 
-from alembic.config import Config
 from codex_graph.db import PostgresGraphDatabase
 from tests.conftest import AgeTestBase
 
