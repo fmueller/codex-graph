@@ -14,7 +14,7 @@ from codex_graph.db.cypher import (
     execute_cypher,
     fetch_cypher,
 )
-from codex_graph.db.git import get_git_commit_info
+from codex_graph.db.git import get_git_commit_info, get_previous_commit_for_file
 from codex_graph.db.helpers import GRAPH_NAME, compute_shape_hash, escape_str, make_span_key, parse_agtype_int
 from codex_graph.models import AstNode, FileAst
 
@@ -88,15 +88,26 @@ async def _persist_file_ast_to_age(engine: AsyncEngine, fa: FileAst, file_path: 
     commit_id = git_info.commit_id if git_info else "local"
     author = git_info.author if git_info else "local"
     ts_iso = git_info.timestamp if git_info else datetime.now(timezone.utc).isoformat()
+    branch = git_info.branch if git_info else "local"
     cypher_fv = (
         f"MERGE (fv:FileVersion {{commit_id: '{escape_str(commit_id)}', file_uuid: '{escape_str(fa.file_uuid)}', "
         f"path: '{escape_str(file_path)}'}}) "
         f"SET fv.language = '{escape_str(fa.language)}', fv.ts = '{escape_str(ts_iso)}', "
-        f"fv.author = '{escape_str(author)}' "
+        f"fv.author = '{escape_str(author)}', fv.branch = '{escape_str(branch)}' "
         f"RETURN id(fv)"
     )
     fv_rows = await fetch_cypher(engine, cypher_fv)
     file_version_id = parse_agtype_int(fv_rows[0][0]) if fv_rows else 0
+
+    prev_commit = get_previous_commit_for_file(file_path, commit_id) if commit_id != "local" else None
+    if prev_commit:
+        cypher_link = (
+            f"MATCH (prev:FileVersion {{commit_id: '{escape_str(prev_commit)}', path: '{escape_str(file_path)}'}}) "
+            f"MATCH (cur) WHERE id(cur) = {file_version_id} "
+            f"MERGE (prev)-[r:NEXT_VERSION]->(cur) "
+            f"RETURN id(r)"
+        )
+        await execute_cypher(engine, cypher_link)
 
     caches = _IngestCaches()
     occurrences: list[tuple[int, int, int]] = []
