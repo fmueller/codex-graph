@@ -26,7 +26,7 @@ async def run_ingest(
     assert file_path is not None
 
     try:
-        resolved_path = str(file_path)
+        resolved_path = str(file_path.resolve())
         file_uuid = await database.persist_file(resolved_path)
         ast = extract_ast_from_file(resolved_path, file_uuid, resolved_language)
         await database.persist_file_ast(ast, resolved_path)
