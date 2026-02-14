@@ -153,6 +153,24 @@ class InMemoryGraphDatabase:
             rows.append((record.file_id, record.full_path, record.suffix, record.content_hash))
         return rows
 
+    async def list_files_cursor(
+        self,
+        limit: int = 50,
+        after_path: str | None = None,
+        after_id: str | None = None,
+        before_path: str | None = None,
+        before_id: str | None = None,
+    ) -> list[tuple[str, str, str, str]]:
+        all_files = sorted(self.files.values(), key=lambda r: (r.full_path, r.file_id))
+
+        if after_path is not None and after_id is not None:
+            all_files = [r for r in all_files if (r.full_path, r.file_id) > (after_path, after_id)]
+        elif before_path is not None and before_id is not None:
+            all_files = [r for r in all_files if (r.full_path, r.file_id) < (before_path, before_id)]
+            all_files = all_files[-limit:]
+
+        return [(r.file_id, r.full_path, r.suffix, r.content_hash) for r in all_files[:limit]]
+
     async def ping(self) -> bool:
         return True
 

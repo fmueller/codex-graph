@@ -30,6 +30,7 @@ dependencies = [
     "fastmcp (>=2.0.0,<3)",
     "dash (>=3.0.0,<4)",
     "dash-cytoscape (>=1.0.0,<2)",
+    "fastapi-jsonapi (>=3.0.0,<4)",
 ]
 
 [project.scripts]

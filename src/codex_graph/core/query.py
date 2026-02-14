@@ -14,8 +14,21 @@ def _escape_str(value: str) -> str:
     return value.replace("\\", "\\\\").replace("'", "\\'")
 
 
-async def query_files(database: GraphDatabase, limit: int = 50) -> list[tuple[str, str, str, str]]:
-    return await database.list_files(limit)
+async def query_files(
+    database: GraphDatabase,
+    limit: int = 50,
+    after_path: str | None = None,
+    after_id: str | None = None,
+    before_path: str | None = None,
+    before_id: str | None = None,
+) -> list[tuple[str, str, str, str]]:
+    return await database.list_files_cursor(
+        limit,
+        after_path=after_path,
+        after_id=after_id,
+        before_path=before_path,
+        before_id=before_id,
+    )
 
 
 async def query_node_types(
@@ -36,18 +49,38 @@ async def query_nodes(
     node_type: str,
     file_filter: str | None = None,
     limit: int = 50,
+    after_start_byte: int | None = None,
+    after_span_key: str | None = None,
+    before_start_byte: int | None = None,
+    before_span_key: str | None = None,
 ) -> list[tuple[Any, ...]]:
     if file_filter:
-        cypher = (
+        match_clause = (
             f"MATCH (n:AstNode {{type: '{_escape_str(node_type)}'}})"
-            f"-[:OCCURS_IN]->(fv:FileVersion {{path: '{_escape_str(file_filter)}'}}) "
-            f"RETURN n.span_key, n.type, n.start_byte, n.end_byte LIMIT {limit}"
+            f"-[:OCCURS_IN]->(fv:FileVersion {{path: '{_escape_str(file_filter)}'}})"
         )
     else:
-        cypher = (
-            f"MATCH (n:AstNode {{type: '{_escape_str(node_type)}'}}) "
-            f"RETURN n.span_key, n.type, n.start_byte, n.end_byte LIMIT {limit}"
+        match_clause = f"MATCH (n:AstNode {{type: '{_escape_str(node_type)}'}})"
+
+    where_parts: list[str] = []
+    if after_start_byte is not None and after_span_key is not None:
+        where_parts.append(
+            f"(n.start_byte > {after_start_byte} OR "
+            f"(n.start_byte = {after_start_byte} AND n.span_key > '{_escape_str(after_span_key)}'))"
         )
+    elif before_start_byte is not None and before_span_key is not None:
+        where_parts.append(
+            f"(n.start_byte < {before_start_byte} OR "
+            f"(n.start_byte = {before_start_byte} AND n.span_key < '{_escape_str(before_span_key)}'))"
+        )
+
+    where_clause = f" WHERE {' AND '.join(where_parts)}" if where_parts else ""
+
+    cypher = (
+        f"{match_clause}{where_clause} "
+        f"RETURN n.span_key, n.type, n.start_byte, n.end_byte "
+        f"ORDER BY n.start_byte, n.span_key LIMIT {limit}"
+    )
     return await database.fetch_cypher(cypher, columns=4)
 
 
