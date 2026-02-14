@@ -45,6 +45,18 @@ class _DummyDatabase:
     ) -> list[tuple[str, str, str, str]]:
         return []
 
+    async def get_file_by_id(self, file_uuid: str) -> tuple[str, str, str, str] | None:
+        return None
+
+    async def get_language_for_file(self, file_uuid: str) -> str:
+        return ""
+
+    async def get_languages_for_files(self, file_uuids: list[str]) -> dict[str, str]:
+        return {}
+
+    async def get_node_details(self, span_keys: list[str]) -> dict[str, tuple[Any, ...]]:
+        return {}
+
     async def ping(self) -> bool:
         return True
 

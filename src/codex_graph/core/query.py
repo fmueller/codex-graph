@@ -76,12 +76,24 @@ async def query_nodes(
 
     where_clause = f" WHERE {' AND '.join(where_parts)}" if where_parts else ""
 
-    cypher = (
-        f"{match_clause}{where_clause} "
-        f"RETURN n.span_key, n.type, n.start_byte, n.end_byte "
-        f"ORDER BY n.start_byte, n.span_key LIMIT {limit}"
-    )
-    return await database.fetch_cypher(cypher, columns=4)
+    is_backward = before_start_byte is not None and before_span_key is not None
+    if is_backward:
+        # Backward pagination: fetch in DESC order, then reverse to ASC
+        inner = (
+            f"{match_clause}{where_clause} "
+            f"RETURN n.span_key, n.type, n.start_byte, n.end_byte "
+            f"ORDER BY n.start_byte DESC, n.span_key DESC LIMIT {limit}"
+        )
+        rows = await database.fetch_cypher(inner, columns=4)
+        rows.reverse()
+        return rows
+    else:
+        cypher = (
+            f"{match_clause}{where_clause} "
+            f"RETURN n.span_key, n.type, n.start_byte, n.end_byte "
+            f"ORDER BY n.start_byte, n.span_key LIMIT {limit}"
+        )
+        return await database.fetch_cypher(cypher, columns=4)
 
 
 async def query_children(database: GraphDatabase, span_key: str, limit: int = 50) -> list[tuple[Any, ...]]:

@@ -12,14 +12,11 @@ from fastapi_jsonapi.querystring import QueryStringManager
 from fastapi_jsonapi.views import RelationshipRequestInfo
 
 from codex_graph.api.models import AstNodeModel, FileModel
-from codex_graph.api.pagination import decode_cursor, encode_cursor, parse_page_params
+from codex_graph.api.pagination import InvalidCursorError, decode_cursor, encode_cursor, parse_page_params
 from codex_graph.core.ingest import run_ingest
 from codex_graph.core.ports.database import GraphDatabase
 from codex_graph.core.query import (
     query_files as _query_files,
-)
-from codex_graph.core.query import (
-    query_node_detail as _query_node_detail,
 )
 from codex_graph.core.query import (
     query_nodes as _query_nodes,
@@ -66,10 +63,13 @@ class FileDataLayer(BaseDataLayer):
         before_path: str | None = None
         before_id: str | None = None
 
-        if after_cursor:
-            after_path, after_id = decode_cursor(after_cursor)
-        elif before_cursor:
-            before_path, before_id = decode_cursor(before_cursor)
+        try:
+            if after_cursor:
+                after_path, after_id = decode_cursor(after_cursor)
+            elif before_cursor:
+                before_path, before_id = decode_cursor(before_cursor)
+        except InvalidCursorError as exc:
+            raise BadRequest(detail=str(exc)) from exc
 
         # Fetch one extra row to determine if there are more results
         rows = await _query_files(
@@ -93,14 +93,9 @@ class FileDataLayer(BaseDataLayer):
             has_next = len(rows) > size
             has_prev = after_cursor is not None and len(page) > 0
 
-        # Fetch languages for files from FileVersion nodes
-        lang_map: dict[str, str] = {}
-        lang_rows = await self.db.fetch_cypher(
-            "MATCH (fv:FileVersion) RETURN fv.file_uuid, fv.language",
-            columns=2,
-        )
-        for r in lang_rows:
-            lang_map[_strip_agtype(r[0])] = _strip_agtype(r[1])
+        # Fetch languages only for files on the current page
+        page_uuids = [str(r[0]) for r in page]
+        lang_map = await self.db.get_languages_for_files(page_uuids)
 
         items = [
             FileModel(
@@ -138,23 +133,18 @@ class FileDataLayer(BaseDataLayer):
         await self.db.ensure_ready()
         file_uuid = view_kwargs.get("id", "")
 
-        # Fetch file from list_files
-        rows = await self.db.list_files(limit=10000)
-        for r in rows:
-            if str(r[0]) == file_uuid:
-                lang_rows = await self.db.fetch_cypher(
-                    f"MATCH (fv:FileVersion {{file_uuid: '{file_uuid}'}}) RETURN fv.language",
-                )
-                lang = _strip_agtype(lang_rows[0][0]) if lang_rows else ""
-                return FileModel(
-                    id=str(r[0]),
-                    full_path=str(r[1]),
-                    suffix=str(r[2]),
-                    content_hash=str(r[3]),
-                    language=lang,
-                )
+        row = await self.db.get_file_by_id(file_uuid)
+        if row is None:
+            raise ObjectNotFound(detail=f"File {file_uuid} not found")
 
-        raise ObjectNotFound(detail=f"File {file_uuid} not found")
+        lang = await self.db.get_language_for_file(file_uuid)
+        return FileModel(
+            id=str(row[0]),
+            full_path=str(row[1]),
+            suffix=str(row[2]),
+            content_hash=str(row[3]),
+            language=lang,
+        )
 
     async def create_object(self, data_create: Any, view_kwargs: dict[str, Any]) -> Any:
         await self.db.ensure_ready()
@@ -174,16 +164,15 @@ class FileDataLayer(BaseDataLayer):
         )
 
         # Build the created file model
-        rows = await self.db.list_files(limit=10000)
-        for r in rows:
-            if str(r[0]) == file_uuid:
-                return FileModel(
-                    id=file_uuid,
-                    full_path=str(r[1]),
-                    suffix=str(r[2]),
-                    content_hash=str(r[3]),
-                    language=resolved_language,
-                )
+        row = await self.db.get_file_by_id(file_uuid)
+        if row is not None:
+            return FileModel(
+                id=file_uuid,
+                full_path=str(row[1]),
+                suffix=str(row[2]),
+                content_hash=str(row[3]),
+                language=resolved_language,
+            )
 
         return FileModel(
             id=file_uuid,
@@ -225,14 +214,17 @@ class AstNodeDataLayer(BaseDataLayer):
         before_start_byte: int | None = None
         before_span_key: str | None = None
 
-        if after_cursor:
-            sort_val, id_val = decode_cursor(after_cursor)
-            after_start_byte = int(sort_val)
-            after_span_key = id_val
-        elif before_cursor:
-            sort_val, id_val = decode_cursor(before_cursor)
-            before_start_byte = int(sort_val)
-            before_span_key = id_val
+        try:
+            if after_cursor:
+                sort_val, id_val = decode_cursor(after_cursor)
+                after_start_byte = int(sort_val)
+                after_span_key = id_val
+            elif before_cursor:
+                sort_val, id_val = decode_cursor(before_cursor)
+                before_start_byte = int(sort_val)
+                before_span_key = id_val
+        except InvalidCursorError as exc:
+            raise BadRequest(detail=str(exc)) from exc
 
         # Extract filter[type] and filter[file_uuid] from querystring
         node_type: str | None = None
@@ -265,13 +257,15 @@ class AstNodeDataLayer(BaseDataLayer):
             has_prev = after_cursor is not None and len(page) > 0
 
         # query_nodes returns (span_key, type, start_byte, end_byte)
-        # We need full detail for each node
+        # Bulk-fetch full detail for all nodes on the page
+        span_keys = [_strip_agtype(r[0]) for r in page]
+        details = await self.db.get_node_details(span_keys)
+
         items: list[AstNodeModel] = []
         for r in page:
             span_key = _strip_agtype(r[0])
-            detail_rows = await _query_node_detail(self.db, span_key)
-            if detail_rows:
-                d = detail_rows[0]
+            d = details.get(span_key)
+            if d is not None:
                 items.append(
                     AstNodeModel(
                         id=span_key,
@@ -328,11 +322,10 @@ class AstNodeDataLayer(BaseDataLayer):
         await self.db.ensure_ready()
         span_key = view_kwargs.get("id", "")
 
-        detail_rows = await _query_node_detail(self.db, span_key)
-        if not detail_rows:
+        details = await self.db.get_node_details([span_key])
+        d = details.get(span_key)
+        if d is None:
             raise ObjectNotFound(detail=f"AstNode {span_key} not found")
-
-        d = detail_rows[0]
         return AstNodeModel(
             id=span_key,
             type=_strip_agtype(d[1]),
