@@ -52,8 +52,8 @@ def create_app() -> FastAPI:
     app.add_middleware(CursorPaginationMiddleware)
 
     # Custom (non-JSON:API) endpoints
-    app.include_router(root_router)
-    app.include_router(health_router)
+    app.include_router(root_router, include_in_schema=False)
+    app.include_router(health_router, include_in_schema=False)
     app.include_router(cypher_router)
     app.include_router(statistics_router)
 
