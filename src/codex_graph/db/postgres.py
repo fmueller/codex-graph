@@ -217,6 +217,46 @@ class PostgresGraphDatabase:
             )
             return [(str(row[0]), str(row[1]), str(row[2]), str(row[3])[:12]) for row in result.fetchall()]
 
+    async def list_files_cursor(
+        self,
+        limit: int = 50,
+        after_path: str | None = None,
+        after_id: str | None = None,
+        before_path: str | None = None,
+        before_id: str | None = None,
+    ) -> list[tuple[str, str, str, str]]:
+        """Return files with cursor-based pagination ordered by (full_path, id)."""
+        await _ensure_files_table(self._engine)
+        async with self._engine.begin() as conn:
+            if after_path is not None and after_id is not None:
+                result = await conn.execute(
+                    text(
+                        "SELECT id, full_path, suffix, content_hash FROM public.files "
+                        "WHERE (full_path, id::text) > (:after_path, :after_id) "
+                        "ORDER BY full_path, id LIMIT :lim"
+                    ),
+                    {"after_path": after_path, "after_id": after_id, "lim": limit},
+                )
+            elif before_path is not None and before_id is not None:
+                result = await conn.execute(
+                    text(
+                        "SELECT * FROM ("
+                        "  SELECT id, full_path, suffix, content_hash FROM public.files "
+                        "  WHERE (full_path, id::text) < (:before_path, :before_id) "
+                        "  ORDER BY full_path DESC, id DESC LIMIT :lim"
+                        ") sub ORDER BY full_path, id"
+                    ),
+                    {"before_path": before_path, "before_id": before_id, "lim": limit},
+                )
+            else:
+                result = await conn.execute(
+                    text(
+                        "SELECT id, full_path, suffix, content_hash FROM public.files ORDER BY full_path, id LIMIT :lim"
+                    ),
+                    {"lim": limit},
+                )
+            return [(str(row[0]), str(row[1]), str(row[2]), str(row[3])[:12]) for row in result.fetchall()]
+
     async def ping(self) -> bool:
         try:
             async with self._engine.connect() as conn:

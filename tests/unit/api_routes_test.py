@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
 
 from codex_graph.api.app import create_app
 from codex_graph.api.dependencies import get_database
+from codex_graph.api.pagination import decode_cursor, encode_cursor
 from codex_graph.core.ports.database import GraphDatabase
 from codex_graph.db.memory import InMemoryGraphDatabase
 
@@ -30,6 +31,32 @@ def client(db: InMemoryGraphDatabase) -> TestClient:
     return TestClient(app)
 
 
+def _ingest(client: TestClient, code: str = "x = 1", language: str = "python") -> dict[str, Any]:
+    """Helper: POST /files with a JSON:API create envelope."""
+    resp = client.post(
+        "/files",
+        json={
+            "data": {
+                "type": "files",
+                "attributes": {"code": code, "language": language},
+            },
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    result: dict[str, Any] = resp.json()
+    return result
+
+
+class TestRootRoute:
+    def test_root_returns_discovery(self, client: TestClient) -> None:
+        resp = client.get("/")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["jsonapi"]["version"] == "1.0"
+        assert "files" in body["links"]
+        assert "ast-nodes" in body["links"]
+
+
 class TestLivenessRoute:
     def test_liveness_returns_ok(self, client: TestClient) -> None:
         resp = client.get("/healthz/live")
@@ -37,19 +64,35 @@ class TestLivenessRoute:
         assert resp.json() == {"status": "ok"}
 
 
-class TestIngestRoute:
-    def test_ingest_requires_path_or_code(self, client: TestClient) -> None:
-        resp = client.post("/ingest", json={})
-        assert resp.status_code == 422
-
-    def test_ingest_with_code(self, client: TestClient) -> None:
-        resp = client.post("/ingest", json={"code": "x = 1", "language": "python"})
+class TestFilesResource:
+    def test_files_list_empty(self, client: TestClient) -> None:
+        resp = client.get("/files")
         assert resp.status_code == 200
-        data = resp.json()
-        assert "file_uuid" in data
-        assert data["language"] == "python"
+        body = resp.json()
+        assert body["data"] == []
+        assert body["jsonapi"]["version"] == "1.0"
 
-    def test_ingest_with_path(self, client: TestClient, tmp_path: object) -> None:
+    def test_create_file_requires_path_or_code(self, client: TestClient) -> None:
+        resp = client.post(
+            "/files",
+            json={
+                "data": {
+                    "type": "files",
+                    "attributes": {},
+                },
+            },
+        )
+        # Should fail because neither path nor code is provided
+        assert resp.status_code in (400, 422)
+
+    def test_create_file_with_code(self, client: TestClient) -> None:
+        body = _ingest(client)
+        data = body["data"]
+        assert data["type"] == "files"
+        assert "id" in data
+        assert data["attributes"]["language"] == "python"
+
+    def test_create_file_with_path(self, client: TestClient) -> None:
         import tempfile
         from pathlib import Path
 
@@ -59,56 +102,54 @@ class TestIngestRoute:
             fpath = f.name
 
         try:
-            resp = client.post("/ingest", json={"path": fpath})
-            assert resp.status_code == 200
-            data = resp.json()
-            assert data["language"] == "python"
+            resp = client.post(
+                "/files",
+                json={
+                    "data": {
+                        "type": "files",
+                        "attributes": {"path": fpath},
+                    },
+                },
+            )
+            assert resp.status_code == 201
+            data = resp.json()["data"]
+            assert data["attributes"]["language"] == "python"
         finally:
             Path(fpath).unlink(missing_ok=True)
 
-
-class TestQueryFilesRoute:
-    def test_files_empty(self, client: TestClient) -> None:
-        resp = client.get("/query/files")
+    def test_files_list_after_ingest(self, client: TestClient) -> None:
+        _ingest(client)
+        resp = client.get("/files")
         assert resp.status_code == 200
-        assert resp.json() == []
+        body = resp.json()
+        assert len(body["data"]) == 1
+        assert body["data"][0]["type"] == "files"
+        assert "full_path" in body["data"][0]["attributes"]
 
-    def test_files_after_ingest(self, client: TestClient) -> None:
-        client.post("/ingest", json={"code": "a = 1", "language": "python"})
-        resp = client.get("/query/files")
+
+class TestAstNodesResource:
+    def test_ast_nodes_list_empty(self, client: TestClient) -> None:
+        resp = client.get("/ast-nodes")
         assert resp.status_code == 200
-        rows = resp.json()
-        assert len(rows) == 1
-        assert "full_path" in rows[0]
+        body = resp.json()
+        assert body["data"] == []
 
-
-class TestQueryNodeTypesRoute:
-    def test_node_types_empty(self, client: TestClient) -> None:
-        resp = client.get("/query/node-types")
+    def test_ast_nodes_list_with_filter(self, client: TestClient) -> None:
+        resp = client.get("/ast-nodes", params={"filter[type]": "function_definition"})
         assert resp.status_code == 200
-        assert resp.json() == []
+        body = resp.json()
+        assert body["data"] == []
 
 
-class TestQueryNodesRoute:
-    def test_nodes_requires_type(self, client: TestClient) -> None:
-        resp = client.get("/query/nodes")
-        assert resp.status_code == 422
-
-    def test_nodes_empty(self, client: TestClient) -> None:
-        resp = client.get("/query/nodes", params={"type": "function_definition"})
+class TestStatisticsRoute:
+    def test_statistics_returns_meta(self, client: TestClient) -> None:
+        resp = client.get("/statistics")
         assert resp.status_code == 200
-        assert resp.json() == []
-
-
-class TestQueryChildrenRoute:
-    def test_children_requires_span_key(self, client: TestClient) -> None:
-        resp = client.get("/query/children")
-        assert resp.status_code == 422
-
-    def test_children_empty(self, client: TestClient) -> None:
-        resp = client.get("/query/children", params={"span_key": "test::foo::0:0"})
-        assert resp.status_code == 200
-        assert resp.json() == []
+        body = resp.json()
+        assert "meta" in body
+        assert "counts" in body["meta"]
+        assert "languages" in body["meta"]
+        assert "node_types" in body["meta"]
 
 
 class TestCypherRoute:
@@ -117,3 +158,112 @@ class TestCypherRoute:
         assert resp.status_code == 200
         data = resp.json()
         assert "rows" in data
+
+
+class TestCursorPagination:
+    def test_encode_decode_cursor_roundtrip(self) -> None:
+        cursor = encode_cursor("/some/path.py", "abc-123")
+        sort_val, id_val = decode_cursor(cursor)
+        assert sort_val == "/some/path.py"
+        assert id_val == "abc-123"
+
+    def test_files_default_pagination_no_stale_meta(self, client: TestClient) -> None:
+        resp = client.get("/files")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "meta" in body
+        assert "page" not in body["meta"]
+        assert "count" not in body["meta"]
+        assert "totalPages" not in body["meta"]
+
+    def test_files_pagination_links_null_when_no_data(self, client: TestClient) -> None:
+        resp = client.get("/files")
+        body = resp.json()
+        links = body.get("links", {})
+        assert links.get("next") is None
+        assert links.get("prev") is None
+
+    def test_files_page_size_limits_results(self, client: TestClient) -> None:
+        # Ingest 3 files
+        _ingest(client, code="a = 1")
+        _ingest(client, code="b = 2")
+        _ingest(client, code="c = 3")
+
+        resp = client.get("/files", params={"page[size]": "2"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body["data"]) == 2
+        # First page with more: next present, prev null
+        assert body["links"]["next"] is not None
+        assert body["links"]["prev"] is None
+
+    def test_files_page_after_returns_next_page(self, client: TestClient) -> None:
+        _ingest(client, code="a = 1")
+        _ingest(client, code="b = 2")
+        _ingest(client, code="c = 3")
+
+        # Get first page
+        resp1 = client.get("/files", params={"page[size]": "2"})
+        body1 = resp1.json()
+        assert len(body1["data"]) == 2
+        next_link = body1["links"]["next"]
+        assert next_link is not None
+        assert body1["links"]["prev"] is None  # first page has no prev
+
+        # Follow cursor to next page (last page)
+        resp2 = client.get(next_link)
+        body2 = resp2.json()
+        assert len(body2["data"]) == 1
+        assert body2["links"]["next"] is None  # no more forward
+        assert body2["links"]["prev"] is not None  # can go back
+
+        # Verify no overlap between pages
+        ids1 = {d["id"] for d in body1["data"]}
+        ids2 = {d["id"] for d in body2["data"]}
+        assert ids1.isdisjoint(ids2)
+
+    def test_files_page_before_returns_prev_page(self, client: TestClient) -> None:
+        _ingest(client, code="a = 1")
+        _ingest(client, code="b = 2")
+        _ingest(client, code="c = 3")
+
+        # Get first page
+        resp1 = client.get("/files", params={"page[size]": "2"})
+        body1 = resp1.json()
+        next_link = body1["links"]["next"]
+
+        # Get second page
+        resp2 = client.get(next_link)
+        body2 = resp2.json()
+        prev_link = body2["links"]["prev"]
+        assert prev_link is not None
+
+        # Go back via prev link (backward navigation)
+        resp3 = client.get(prev_link)
+        body3 = resp3.json()
+        assert len(body3["data"]) == 2
+        # Backward page: next should be present (items exist past the before cursor)
+        assert body3["links"]["next"] is not None
+
+    def test_files_cursor_past_end_returns_empty(self, client: TestClient) -> None:
+        _ingest(client, code="a = 1")
+
+        # Create a cursor past the end
+        cursor = encode_cursor("\xff" * 100, "\xff" * 100)
+        resp = client.get("/files", params={"page[size]": "10", "page[after]": cursor})
+        body = resp.json()
+        assert body["data"] == []
+        assert body["links"]["next"] is None
+        assert body["links"]["prev"] is None
+        assert "page" not in body["meta"]
+        assert "count" not in body["meta"]
+        assert "totalPages" not in body["meta"]
+
+    def test_ast_nodes_default_pagination_no_stale_meta(self, client: TestClient) -> None:
+        resp = client.get("/ast-nodes")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "meta" in body
+        assert "page" not in body["meta"]
+        assert "count" not in body["meta"]
+        assert "totalPages" not in body["meta"]
