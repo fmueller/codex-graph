@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from codex_graph.api.app import create_app
 from codex_graph.api.dependencies import get_database
-from codex_graph.api.pagination import decode_cursor, encode_cursor
+from codex_graph.api.pagination import InvalidCursorError, decode_cursor, encode_cursor
 from codex_graph.core.ports.database import GraphDatabase
 from codex_graph.db.memory import InMemoryGraphDatabase
 
@@ -267,3 +267,97 @@ class TestCursorPagination:
         assert "page" not in body["meta"]
         assert "count" not in body["meta"]
         assert "totalPages" not in body["meta"]
+
+    def test_files_invalid_cursor_returns_error(self, client: TestClient) -> None:
+        resp = client.get("/files", params={"page[after]": "not-a-valid-cursor!!!"})
+        assert resp.status_code == 400
+
+    def test_files_non_numeric_page_size_returns_error(self, client: TestClient) -> None:
+        _ingest(client, code="a = 1")
+        resp = client.get("/files", params={"page[size]": "abc"})
+        # Framework rejects non-numeric page size before our handler
+        assert resp.status_code in (400, 422)
+
+
+class TestFileGetById:
+    def test_get_file_by_id(self, client: TestClient) -> None:
+        body = _ingest(client)
+        file_id = body["data"]["id"]
+
+        resp = client.get(f"/files/{file_id}")
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["id"] == file_id
+        assert data["type"] == "files"
+        assert data["attributes"]["language"] == "python"
+        assert "full_path" in data["attributes"]
+
+    def test_get_file_not_found(self, client: TestClient) -> None:
+        resp = client.get("/files/00000000-0000-0000-0000-000000000000")
+        assert resp.status_code == 404
+
+
+class TestAstNodeGetById:
+    def test_get_ast_node_by_id(self, client: TestClient, db: InMemoryGraphDatabase) -> None:
+        _ingest(client, code="x = 1")
+
+        # Retrieve a span_key from the in-memory DB
+        assert len(db.ast_nodes) > 0
+        sample_node = next(iter(db.ast_nodes.values()))
+        span_key = sample_node.span_key
+
+        resp = client.get(f"/ast-nodes/{span_key}")
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["id"] == span_key
+        assert data["type"] == "ast-nodes"
+        assert "start_byte" in data["attributes"]
+
+    def test_get_ast_node_not_found(self, client: TestClient) -> None:
+        resp = client.get("/ast-nodes/nonexistent-span-key")
+        assert resp.status_code == 404
+
+
+class TestReadinessRoute:
+    def test_readiness_returns_ok(self, client: TestClient) -> None:
+        resp = client.get("/healthz/ready")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["database"] == "up"
+
+
+class TestCypherReadOnlyGuard:
+    def test_cypher_rejects_create(self, client: TestClient) -> None:
+        resp = client.post("/query/cypher", json={"query": "CREATE (n:Foo) RETURN n"})
+        assert resp.status_code == 400
+
+    def test_cypher_rejects_delete(self, client: TestClient) -> None:
+        resp = client.post("/query/cypher", json={"query": "MATCH (n) DELETE n"})
+        assert resp.status_code == 400
+
+    def test_cypher_rejects_set(self, client: TestClient) -> None:
+        resp = client.post("/query/cypher", json={"query": "MATCH (n) SET n.x = 1 RETURN n"})
+        assert resp.status_code == 400
+
+    def test_cypher_rejects_merge(self, client: TestClient) -> None:
+        resp = client.post("/query/cypher", json={"query": "MERGE (n:Foo) RETURN n"})
+        assert resp.status_code == 400
+
+    def test_cypher_allows_match(self, client: TestClient) -> None:
+        resp = client.post("/query/cypher", json={"query": "MATCH (n) RETURN n LIMIT 1", "columns": 1})
+        assert resp.status_code == 200
+
+
+class TestDecodeCursorError:
+    def test_decode_cursor_malformed_raises(self) -> None:
+        with pytest.raises(InvalidCursorError):
+            decode_cursor("not-valid-base64!!!")
+
+    def test_decode_cursor_missing_keys_raises(self) -> None:
+        import base64
+        import json
+
+        bad_payload = base64.urlsafe_b64encode(json.dumps({"x": 1}).encode()).decode()
+        with pytest.raises(InvalidCursorError):
+            decode_cursor(bad_payload)

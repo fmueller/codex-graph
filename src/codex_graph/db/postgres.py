@@ -207,6 +207,19 @@ class PostgresGraphDatabase:
         """Run a read-only Cypher query and return result rows."""
         return await fetch_cypher(self._engine, cypher, columns)
 
+    async def get_file_by_id(self, file_uuid: str) -> tuple[str, str, str, str] | None:
+        """Return (id, full_path, suffix, content_hash_prefix) for a single file, or None."""
+        await _ensure_files_table(self._engine)
+        async with self._engine.begin() as conn:
+            result = await conn.execute(
+                text("SELECT id, full_path, suffix, content_hash FROM public.files WHERE id = :file_id"),
+                {"file_id": file_uuid},
+            )
+            row = result.fetchone()
+            if row is None:
+                return None
+            return (str(row[0]), str(row[1]), str(row[2]), str(row[3])[:12])
+
     async def list_files(self, limit: int = 50) -> list[tuple[str, str, str, str]]:
         """Return (id, full_path, suffix, content_hash_prefix) from the files table."""
         await _ensure_files_table(self._engine)
@@ -256,6 +269,48 @@ class PostgresGraphDatabase:
                     {"lim": limit},
                 )
             return [(str(row[0]), str(row[1]), str(row[2]), str(row[3])[:12]) for row in result.fetchall()]
+
+    async def get_language_for_file(self, file_uuid: str) -> str:
+        """Return the language for a single file UUID from FileVersion nodes."""
+        rows = await fetch_cypher(
+            self._engine,
+            f"MATCH (fv:FileVersion {{file_uuid: '{escape_str(file_uuid)}'}}) RETURN fv.language",
+        )
+        if rows:
+            return str(rows[0][0]).strip('"')
+        return ""
+
+    async def get_languages_for_files(self, file_uuids: list[str]) -> dict[str, str]:
+        """Return {file_uuid: language} for the given file UUIDs."""
+        if not file_uuids:
+            return {}
+        uuid_list = ", ".join(f"'{escape_str(u)}'" for u in file_uuids)
+        rows = await fetch_cypher(
+            self._engine,
+            f"MATCH (fv:FileVersion) WHERE fv.file_uuid IN [{uuid_list}] RETURN fv.file_uuid, fv.language",
+            columns=2,
+        )
+        result: dict[str, str] = {}
+        for r in rows:
+            result[str(r[0]).strip('"')] = str(r[1]).strip('"')
+        return result
+
+    async def get_node_details(self, span_keys: list[str]) -> dict[str, tuple[Any, ...]]:
+        """Return {span_key: (span_key, type, start_line, ...)} for the given span keys."""
+        if not span_keys:
+            return {}
+        key_list = ", ".join(f"'{escape_str(k)}'" for k in span_keys)
+        rows = await fetch_cypher(
+            self._engine,
+            f"MATCH (n:AstNode) WHERE n.span_key IN [{key_list}] "
+            "RETURN n.span_key, n.type, n.start_line, n.start_column, "
+            "n.end_line, n.end_column, n.start_byte, n.end_byte, n.shape_hash, n.file_uuid",
+            columns=10,
+        )
+        result: dict[str, tuple[Any, ...]] = {}
+        for r in rows:
+            result[str(r[0]).strip('"')] = r
+        return result
 
     async def ping(self) -> bool:
         try:

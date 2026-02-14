@@ -147,6 +147,12 @@ class InMemoryGraphDatabase:
     async def fetch_cypher(self, cypher: str, columns: int | None = None) -> list[tuple[Any, ...]]:
         return []
 
+    async def get_file_by_id(self, file_uuid: str) -> tuple[str, str, str, str] | None:
+        record = self.files.get(file_uuid)
+        if record is None:
+            return None
+        return (record.file_id, record.full_path, record.suffix, record.content_hash)
+
     async def list_files(self, limit: int = 50) -> list[tuple[str, str, str, str]]:
         rows: list[tuple[str, str, str, str]] = []
         for record in list(self.files.values())[:limit]:
@@ -170,6 +176,39 @@ class InMemoryGraphDatabase:
             all_files = all_files[-limit:]
 
         return [(r.file_id, r.full_path, r.suffix, r.content_hash) for r in all_files[:limit]]
+
+    async def get_language_for_file(self, file_uuid: str) -> str:
+        for fv in self.file_versions:
+            if fv.file_uuid == file_uuid:
+                return fv.language
+        return ""
+
+    async def get_languages_for_files(self, file_uuids: list[str]) -> dict[str, str]:
+        uuid_set = set(file_uuids)
+        result: dict[str, str] = {}
+        for fv in self.file_versions:
+            if fv.file_uuid in uuid_set:
+                result[fv.file_uuid] = fv.language
+        return result
+
+    async def get_node_details(self, span_keys: list[str]) -> dict[str, tuple[Any, ...]]:
+        key_set = set(span_keys)
+        result: dict[str, tuple[Any, ...]] = {}
+        for node in self.ast_nodes.values():
+            if node.span_key in key_set:
+                result[node.span_key] = (
+                    node.span_key,
+                    node.node_type,
+                    node.start_row,
+                    node.start_col,
+                    node.end_row,
+                    node.end_col,
+                    node.start_byte,
+                    node.end_byte,
+                    node.shape_hash,
+                    node.file_uuid,
+                )
+        return result
 
     async def ping(self) -> bool:
         return True

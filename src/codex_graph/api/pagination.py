@@ -18,10 +18,20 @@ def encode_cursor(sort_value: str, id_value: str) -> str:
     return base64.urlsafe_b64encode(payload.encode()).decode()
 
 
+class InvalidCursorError(ValueError):
+    """Raised when a cursor string cannot be decoded."""
+
+
 def decode_cursor(cursor: str) -> tuple[str, str]:
-    """Decode a cursor string back into (sort_value, id_value)."""
-    payload = json.loads(base64.urlsafe_b64decode(cursor.encode()).decode())
-    return str(payload["s"]), str(payload["i"])
+    """Decode a cursor string back into (sort_value, id_value).
+
+    Raises ``InvalidCursorError`` if the cursor is malformed.
+    """
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(cursor.encode()).decode())
+        return str(payload["s"]), str(payload["i"])
+    except (ValueError, KeyError, UnicodeDecodeError) as exc:
+        raise InvalidCursorError(f"Malformed cursor: {cursor!r}") from exc
 
 
 def parse_page_params(request: Request) -> tuple[str | None, str | None, int]:
@@ -29,5 +39,8 @@ def parse_page_params(request: Request) -> tuple[str | None, str | None, int]:
     after = request.query_params.get("page[after]")
     before = request.query_params.get("page[before]")
     size_raw = request.query_params.get("page[size]", "50")
-    size = max(1, min(int(size_raw), 1000))
+    try:
+        size = max(1, min(int(size_raw), 1000))
+    except (ValueError, TypeError):
+        size = 50
     return after, before, size
