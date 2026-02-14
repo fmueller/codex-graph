@@ -1,4 +1,6 @@
 import hashlib
+import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,8 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from codex_graph.db.cypher import (
-    db_insert_ast_node,
-    db_upsert_parent_of,
+    _use_conn,
     ensure_graph,
     execute_cypher,
     fetch_cypher,
@@ -18,111 +19,281 @@ from codex_graph.db.git import get_git_commit_info, get_previous_commit_for_file
 from codex_graph.db.helpers import GRAPH_NAME, compute_shape_hash, escape_str, make_span_key, parse_agtype_int
 from codex_graph.models import AstNode, FileAst
 
+logger = logging.getLogger(__name__)
 
-class _IngestCaches:
-    def __init__(self) -> None:
-        self.node_id_by_span: dict[str, int] = {}
-        self.node_id_by_shape: dict[str, int] = {}
+_graph_ensured = False
 
 
-async def _ingest_node(
-    engine: AsyncEngine,
+_BATCH_SIZE = 200
+
+
+def _collect_ast_data(
     node: AstNode,
     file_uuid: str,
     source_bytes: bytes,
-    caches: _IngestCaches,
-    occurrences: list[tuple[int, int, int]],
-) -> tuple[int, str | None]:
-    child_ids: list[int] = []
-    child_shapes: list[str] = []
-    if node.children:
-        for child in node.children:
-            cid, cshape = await _ingest_node(engine, child, file_uuid, source_bytes, caches, occurrences)
-            child_ids.append(cid)
-            if cshape:
-                child_shapes.append(cshape)
+) -> tuple[list[dict[str, Any]], list[tuple[int, int, int]], list[tuple[int, int, int]]]:
+    """Walk the AST tree and collect flat lists for batch DB operations.
 
-    span_key = make_span_key(file_uuid, node.type, node.start_byte, node.end_byte)
-    src_slice = source_bytes[node.start_byte : node.end_byte]
-    shash = compute_shape_hash(node.type, src_slice, child_shapes)
+    Returns ``(node_props, edges, occurrences)`` where:
+    - ``node_props[i]`` is the property dict for node *i*
+    - ``edges[j]`` is ``(parent_index, child_index, child_order)``
+    - ``occurrences[k]`` is ``(node_index, start_byte, end_byte)``
+    """
+    nodes: list[dict[str, Any]] = []
+    edges: list[tuple[int, int, int]] = []
+    occurrences: list[tuple[int, int, int]] = []
 
-    from codex_graph.db.cypher import db_lookup_node_id_by_shape, db_lookup_node_id_by_span
+    def _walk(n: AstNode) -> tuple[int, str]:
+        child_indices: list[int] = []
+        child_shapes: list[str] = []
+        if n.children:
+            for child in n.children:
+                ci, cs = _walk(child)
+                child_indices.append(ci)
+                if cs:
+                    child_shapes.append(cs)
 
-    nid = caches.node_id_by_span.get(span_key)
-    if nid is None:
-        nid = await db_lookup_node_id_by_span(engine, span_key)
-    if nid is None and shash:
-        nid = caches.node_id_by_shape.get(shash) or await db_lookup_node_id_by_shape(engine, shash)
+        span_key = make_span_key(file_uuid, n.type, n.start_byte, n.end_byte)
+        src_slice = source_bytes[n.start_byte : n.end_byte]
+        shash = compute_shape_hash(n.type, src_slice, child_shapes)
 
-    if nid is None:
-        nid = await db_insert_ast_node(
-            engine,
+        idx = len(nodes)
+        nodes.append(
             {
                 "file_uuid": file_uuid,
-                "type": node.type,
-                "start_byte": node.start_byte,
-                "end_byte": node.end_byte,
-                "start_row": node.start_point.row,
-                "start_col": node.start_point.column,
-                "end_row": node.end_point.row,
-                "end_col": node.end_point.column,
+                "type": n.type,
+                "start_byte": n.start_byte,
+                "end_byte": n.end_byte,
+                "start_row": n.start_point.row,
+                "start_col": n.start_point.column,
+                "end_row": n.end_point.row,
+                "end_col": n.end_point.column,
                 "span_key": span_key,
                 "shape_hash": shash,
-            },
+            }
         )
-    caches.node_id_by_span[span_key] = nid
-    if shash:
-        caches.node_id_by_shape.setdefault(shash, nid)
 
-    for idx, cid in enumerate(child_ids):
-        await db_upsert_parent_of(engine, nid, cid, idx)
+        for child_order, ci in enumerate(child_indices):
+            edges.append((idx, ci, child_order))
 
-    occurrences.append((nid, node.start_byte, node.end_byte))
-    return nid, shash
+        occurrences.append((idx, n.start_byte, n.end_byte))
+        return idx, shash
+
+    _walk(node)
+    return nodes, edges, occurrences
+
+
+async def _batch_lookup_spans(
+    engine: AsyncEngine,
+    span_keys: list[str],
+    conn: Any,
+) -> dict[str, int]:
+    """Look up existing AstNode IDs by span_key in batches."""
+    span_to_id: dict[str, int] = {}
+    for i in range(0, len(span_keys), _BATCH_SIZE):
+        chunk = span_keys[i : i + _BATCH_SIZE]
+        key_list = ", ".join(f"'{escape_str(k)}'" for k in chunk)
+        cypher = f"MATCH (n:AstNode) WHERE n.span_key IN [{key_list}] RETURN n.span_key, id(n)"
+        rows = await fetch_cypher(engine, cypher, columns=2, conn=conn)
+        for row in rows:
+            sk = str(row[0]).strip('"')
+            nid = parse_agtype_int(row[1])
+            span_to_id[sk] = nid
+    return span_to_id
+
+
+async def _batch_create_nodes(
+    engine: AsyncEngine,
+    node_props_list: list[dict[str, Any]],
+    conn: Any,
+) -> list[int]:
+    """Create AstNode vertices in batches and return their AGE IDs in order."""
+    from codex_graph.db.helpers import to_cypher_props
+
+    ids: list[int] = []
+    for i in range(0, len(node_props_list), _BATCH_SIZE):
+        chunk = node_props_list[i : i + _BATCH_SIZE]
+        props_literals = ", ".join(to_cypher_props(p) for p in chunk)
+        cypher = f"UNWIND [{props_literals}] AS props CREATE (n:AstNode) SET n = props RETURN id(n)"
+        rows = await fetch_cypher(engine, cypher, columns=1, conn=conn)
+        ids.extend(parse_agtype_int(row[0]) for row in rows)
+    return ids
+
+
+async def _batch_edge_guard(
+    engine: AsyncEngine,
+    triples: list[tuple[int, int, int]],
+    conn: Any,
+) -> None:
+    """Bulk INSERT into ast_edge_guard."""
+    if not triples:
+        return
+    for i in range(0, len(triples), _BATCH_SIZE):
+        chunk = triples[i : i + _BATCH_SIZE]
+        values = ", ".join(f"({p}, {c}, {idx})" for p, c, idx in chunk)
+        sql = (
+            f"INSERT INTO ast_edge_guard(parent_id, child_id, child_index) "
+            f"VALUES {values} ON CONFLICT (parent_id, child_id) DO NOTHING"
+        )
+        async with _use_conn(engine, conn) as c:
+            await c.execute(text(sql))
+
+
+async def _batch_parent_edges(
+    engine: AsyncEngine,
+    triples: list[tuple[int, int, int]],
+    conn: Any,
+) -> None:
+    """Create PARENT_OF edges in batches via UNWIND."""
+    if not triples:
+        return
+    for i in range(0, len(triples), _BATCH_SIZE):
+        chunk = triples[i : i + _BATCH_SIZE]
+        items = ", ".join(f"{{pid: {p}, cid: {c}, idx: {idx}}}" for p, c, idx in chunk)
+        cypher = (
+            f"UNWIND [{items}] AS e "
+            "MATCH (p) WHERE id(p) = e.pid "
+            "MATCH (c) WHERE id(c) = e.cid "
+            "MERGE (p)-[r:PARENT_OF]->(c) SET r.child_index = e.idx "
+            "RETURN id(r)"
+        )
+        await execute_cypher(engine, cypher, conn=conn)
+
+
+async def _batch_occurs_edges(
+    engine: AsyncEngine,
+    occurs: list[tuple[int, int, int]],
+    file_version_id: int,
+    commit_id: str,
+    file_uuid: str,
+    conn: Any,
+) -> None:
+    """Create OCCURS_IN edges in batches via UNWIND."""
+    if not occurs:
+        return
+    esc_commit = escape_str(commit_id)
+    esc_uuid = escape_str(file_uuid)
+    for i in range(0, len(occurs), _BATCH_SIZE):
+        chunk = occurs[i : i + _BATCH_SIZE]
+        items = ", ".join(f"{{nid: {nid}, sb: {sb}, eb: {eb}}}" for nid, sb, eb in chunk)
+        cypher = (
+            f"UNWIND [{items}] AS o "
+            f"MATCH (n) WHERE id(n) = o.nid "
+            f"MATCH (fv) WHERE id(fv) = {file_version_id} "
+            f"MERGE (n)-[r:OCCURS_IN {{commit_id: '{esc_commit}', file_uuid: '{esc_uuid}', "
+            f"start_byte: o.sb, end_byte: o.eb}}]->(fv) "
+            f"RETURN id(r)"
+        )
+        await execute_cypher(engine, cypher, conn=conn)
 
 
 async def _persist_file_ast_to_age(engine: AsyncEngine, fa: FileAst, file_path: str) -> None:
-    await ensure_graph(engine, GRAPH_NAME)
+    t_total = time.perf_counter()
 
+    global _graph_ensured  # noqa: PLW0603
+    t0 = time.perf_counter()
+    if not _graph_ensured:
+        await ensure_graph(engine, GRAPH_NAME)
+        _graph_ensured = True
+    t_ensure = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
     git_info = get_git_commit_info(file_path)
+    t_git = time.perf_counter() - t0
+
     commit_id = git_info.commit_id if git_info else "local"
     author = git_info.author if git_info else "local"
     ts_iso = git_info.timestamp if git_info else datetime.now(timezone.utc).isoformat()
     branch = git_info.branch if git_info else "local"
-    cypher_fv = (
-        f"MERGE (fv:FileVersion {{commit_id: '{escape_str(commit_id)}', file_uuid: '{escape_str(fa.file_uuid)}', "
-        f"path: '{escape_str(file_path)}'}}) "
-        f"SET fv.language = '{escape_str(fa.language)}', fv.ts = '{escape_str(ts_iso)}', "
-        f"fv.author = '{escape_str(author)}', fv.branch = '{escape_str(branch)}' "
-        f"RETURN id(fv)"
+
+    source_bytes = fa.source_bytes if fa.source_bytes is not None else Path(file_path).read_bytes()
+
+    # --- Phase 1: collect (pure computation, no DB) ---
+    t0 = time.perf_counter()
+    node_props, edge_tuples, occurrence_tuples = _collect_ast_data(fa.ast, fa.file_uuid, source_bytes)
+    t_collect = time.perf_counter() - t0
+
+    # --- Phase 2: persist (all batched, single transaction) ---
+    async with engine.begin() as conn:
+        # File version
+        t0 = time.perf_counter()
+        cypher_fv = (
+            f"MERGE (fv:FileVersion {{commit_id: '{escape_str(commit_id)}', "
+            f"file_uuid: '{escape_str(fa.file_uuid)}', "
+            f"path: '{escape_str(file_path)}'}}) "
+            f"SET fv.language = '{escape_str(fa.language)}', fv.ts = '{escape_str(ts_iso)}', "
+            f"fv.author = '{escape_str(author)}', fv.branch = '{escape_str(branch)}' "
+            f"RETURN id(fv)"
+        )
+        fv_rows = await fetch_cypher(engine, cypher_fv, conn=conn)
+        file_version_id = parse_agtype_int(fv_rows[0][0]) if fv_rows else 0
+
+        prev_commit = get_previous_commit_for_file(file_path, commit_id) if commit_id != "local" else None
+        if prev_commit:
+            cypher_link = (
+                f"MATCH (prev:FileVersion {{commit_id: '{escape_str(prev_commit)}', "
+                f"path: '{escape_str(file_path)}'}}) "
+                f"MATCH (cur) WHERE id(cur) = {file_version_id} "
+                f"MERGE (prev)-[r:NEXT_VERSION]->(cur) RETURN id(r)"
+            )
+            await execute_cypher(engine, cypher_link, conn=conn)
+        t_fv = time.perf_counter() - t0
+
+        # Batch lookup existing nodes by span_key
+        t0 = time.perf_counter()
+        all_span_keys = [p["span_key"] for p in node_props]
+        span_to_id = await _batch_lookup_spans(engine, all_span_keys, conn=conn)
+
+        # Separate new vs existing nodes
+        new_indices: list[int] = []
+        new_props: list[dict[str, Any]] = []
+        index_to_age_id: dict[int, int] = {}
+        for i, props in enumerate(node_props):
+            sk = props["span_key"]
+            if sk in span_to_id:
+                index_to_age_id[i] = span_to_id[sk]
+            else:
+                new_indices.append(i)
+                new_props.append(props)
+
+        # Batch create new nodes
+        if new_props:
+            created_ids = await _batch_create_nodes(engine, new_props, conn=conn)
+            for list_pos, node_idx in enumerate(new_indices):
+                index_to_age_id[node_idx] = created_ids[list_pos]
+        t_nodes = time.perf_counter() - t0
+
+        # Batch create edges
+        t0 = time.perf_counter()
+        # Map edge tuples from list indices to AGE IDs
+        age_edge_triples = [
+            (index_to_age_id[parent_idx], index_to_age_id[child_idx], child_order)
+            for parent_idx, child_idx, child_order in edge_tuples
+        ]
+        await _batch_edge_guard(engine, age_edge_triples, conn=conn)
+        await _batch_parent_edges(engine, age_edge_triples, conn=conn)
+
+        # Batch create OCCURS_IN edges
+        age_occurs = [(index_to_age_id[node_idx], sb, eb) for node_idx, sb, eb in occurrence_tuples]
+        await _batch_occurs_edges(engine, age_occurs, file_version_id, commit_id, fa.file_uuid, conn=conn)
+        t_edges = time.perf_counter() - t0
+
+    t_elapsed = time.perf_counter() - t_total
+    logger.info(
+        "ingest %s: %d nodes (%d new), %.2fs total "
+        "(ensure_graph=%.2fs, git=%.2fs, collect=%.2fs, file_version=%.2fs, "
+        "nodes+lookup=%.2fs, edges+occurs=%.2fs)",
+        file_path,
+        len(node_props),
+        len(new_props) if new_props else 0,
+        t_elapsed,
+        t_ensure,
+        t_git,
+        t_collect,
+        t_fv,
+        t_nodes,
+        t_edges,
     )
-    fv_rows = await fetch_cypher(engine, cypher_fv)
-    file_version_id = parse_agtype_int(fv_rows[0][0]) if fv_rows else 0
-
-    prev_commit = get_previous_commit_for_file(file_path, commit_id) if commit_id != "local" else None
-    if prev_commit:
-        cypher_link = (
-            f"MATCH (prev:FileVersion {{commit_id: '{escape_str(prev_commit)}', path: '{escape_str(file_path)}'}}) "
-            f"MATCH (cur) WHERE id(cur) = {file_version_id} "
-            f"MERGE (prev)-[r:NEXT_VERSION]->(cur) "
-            f"RETURN id(r)"
-        )
-        await execute_cypher(engine, cypher_link)
-
-    caches = _IngestCaches()
-    occurrences: list[tuple[int, int, int]] = []
-    source_bytes = Path(file_path).read_bytes()
-    await _ingest_node(engine, fa.ast, fa.file_uuid, source_bytes, caches, occurrences)
-
-    for nid, start_b, end_b in occurrences:
-        cypher_occurs = (
-            f"MATCH (n) WHERE id(n) = {nid} "
-            f"MATCH (fv) WHERE id(fv) = {file_version_id} "
-            f"MERGE (n)-[r:OCCURS_IN {{commit_id: '{escape_str(commit_id)}', file_uuid: '{escape_str(fa.file_uuid)}',"
-            f" start_byte: {start_b}, end_byte: {end_b}}}]->(fv) "
-            f"RETURN id(r)"
-        )
-        await execute_cypher(engine, cypher_occurs)
 
 
 async def _ensure_files_table(engine: AsyncEngine) -> None:

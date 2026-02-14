@@ -152,6 +152,28 @@ def outer():
         assert "function_definition" in node_types
         assert "identifier" in node_types
 
+    def test_ast_contains_only_named_nodes(self, tmp_path: Path) -> None:
+        """AST extraction should filter out anonymous tree-sitter nodes (punctuation, keywords)."""
+        py_file = tmp_path / "named_only.py"
+        py_file.write_text("def greet(name: str) -> str:\n    return name\n")
+
+        result = _extract_ast_from_file(str(py_file), "test-uuid-named")
+
+        # Anonymous tokens like '(', ')', ':', 'def', '->' should not appear
+        anonymous_tokens = {"(", ")", ":", ",", "->", "def", "return"}
+
+        def collect_types(node: AstNode, types: set[str]) -> None:
+            types.add(node.type)
+            if node.children:
+                for child in node.children:
+                    collect_types(child, types)
+
+        all_types: set[str] = set()
+        collect_types(result.ast, all_types)
+
+        found_anonymous = anonymous_tokens & all_types
+        assert not found_anonymous, f"Found anonymous node types that should be filtered: {found_anonymous}"
+
     def test_all_nodes_have_file_uuid(self, tmp_path: Path) -> None:
         """Test that all AST nodes have the correct file_uuid."""
         py_file = tmp_path / "uuid_check.py"

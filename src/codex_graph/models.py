@@ -23,3 +23,4 @@ class FileAst(BaseModel):
     file_uuid: str
     language: str
     ast: AstNode
+    source_bytes: bytes | None = None
