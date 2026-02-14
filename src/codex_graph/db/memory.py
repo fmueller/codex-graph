@@ -31,6 +31,7 @@ class InMemoryFileVersion:
     language: str
     timestamp: str
     author: str
+    branch: str
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,13 @@ class InMemoryOccurrence:
     end_byte: int
 
 
+@dataclass(frozen=True)
+class InMemoryFileVersionLink:
+    previous_file_version_id: int
+    next_file_version_id: int
+    path: str
+
+
 class InMemoryGraphDatabase:
     def __init__(self) -> None:
         self.files: dict[str, InMemoryFileRecord] = {}
@@ -68,6 +76,7 @@ class InMemoryGraphDatabase:
         self.ast_nodes_by_shape: dict[str, int] = {}
         self.parent_edges: set[tuple[int, int, int]] = set()
         self.occurrences: list[InMemoryOccurrence] = []
+        self.file_version_links: list[InMemoryFileVersionLink] = []
         self._next_node_id = 1
         self._next_file_version_id = 1
 
@@ -110,6 +119,7 @@ class InMemoryGraphDatabase:
         commit_id = git_info.commit_id if git_info else "local"
         author = git_info.author if git_info else "local"
         ts_iso = git_info.timestamp if git_info else datetime.now(timezone.utc).isoformat()
+        branch = git_info.branch if git_info else "local"
 
         file_version_id = self._next_file_version_id
         self._next_file_version_id += 1
@@ -122,8 +132,19 @@ class InMemoryGraphDatabase:
                 language=fa.language,
                 timestamp=ts_iso,
                 author=author,
+                branch=branch,
             )
         )
+
+        for prev_fv in self.file_versions[:-1]:
+            if prev_fv.path == file_path:
+                self.file_version_links.append(
+                    InMemoryFileVersionLink(
+                        previous_file_version_id=prev_fv.version_id,
+                        next_file_version_id=file_version_id,
+                        path=file_path,
+                    )
+                )
 
         occurrences: list[tuple[int, int, int]] = []
         source_bytes = Path(file_path).read_bytes()
