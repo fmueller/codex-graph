@@ -1,5 +1,6 @@
 """Integration tests for query functions against a real AGE database."""
 
+import os
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -10,7 +11,18 @@ from typer.testing import CliRunner
 
 from codex_graph.cli.app import app
 from codex_graph.core.ingest import run_ingest
-from codex_graph.core.query import query_children, query_cypher, query_files, query_node_types, query_nodes
+from codex_graph.core.query import (
+    query_children,
+    query_cypher,
+    query_file_node_counts,
+    query_file_root_nodes,
+    query_files,
+    query_language_distribution,
+    query_node_type_counts,
+    query_node_types,
+    query_nodes,
+    query_statistics,
+)
 from codex_graph.db import PostgresGraphDatabase
 
 SAMPLE_PYTHON = """\
@@ -108,6 +120,122 @@ async def test_query_cypher_passthrough(db: PostgresGraphDatabase, ingested_file
         assert len(rows) == 1
         count = int(str(rows[0][0]).strip('"'))
         assert count > 0
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_query_statistics(db: PostgresGraphDatabase, ingested_file: tuple[str, str]) -> None:
+    """query_statistics returns positive counts after ingest."""
+    _, tmp_path = ingested_file
+    try:
+        stats = await query_statistics(db)
+        assert stats["files"] > 0
+        assert stats["ast_nodes"] > 0
+        assert stats["parent_of_edges"] > 0
+        assert stats["occurs_in_edges"] > 0
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_query_language_distribution(db: PostgresGraphDatabase, ingested_file: tuple[str, str]) -> None:
+    """query_language_distribution returns language counts."""
+    _, tmp_path = ingested_file
+    try:
+        rows = await query_language_distribution(db)
+        assert len(rows) > 0
+        languages = [lang for lang, _ in rows]
+        assert "python" in languages
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_query_node_type_counts(db: PostgresGraphDatabase, ingested_file: tuple[str, str]) -> None:
+    """query_node_type_counts returns types with counts."""
+    _, tmp_path = ingested_file
+    try:
+        rows = await query_node_type_counts(db)
+        assert len(rows) > 0
+        types = [t for t, _ in rows]
+        assert "function_definition" in types
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_query_file_node_counts(db: PostgresGraphDatabase, ingested_file: tuple[str, str]) -> None:
+    """query_file_node_counts returns file paths with node counts."""
+    _, tmp_path = ingested_file
+    try:
+        rows = await query_file_node_counts(db)
+        assert len(rows) > 0
+        _, path, lang, count = rows[0]
+        assert count > 0
+        assert lang == "python"
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_query_file_root_nodes(db: PostgresGraphDatabase, ingested_file: tuple[str, str]) -> None:
+    """query_file_root_nodes returns top-level nodes for a file."""
+    _, tmp_path = ingested_file
+    try:
+        # Ingest now stores a canonical absolute path in FileVersion.path.
+        rows = await query_file_root_nodes(db, str(Path(tmp_path).resolve()))
+        assert len(rows) > 0
+        # The root node should be a module node
+        node_type = str(rows[0][1]).strip('"')
+        assert node_type == "module"
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_query_file_root_nodes_with_relative_ingest_path(db: PostgresGraphDatabase) -> None:
+    """query_file_root_nodes works when ingest path is provided as a relative path."""
+    with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as f:
+        f.write(SAMPLE_PYTHON)
+        f.flush()
+        abs_path = Path(f.name).resolve()
+
+    rel_path = os.path.relpath(abs_path, Path.cwd())
+    try:
+        await run_ingest(db, path=rel_path)
+        rows = await query_file_root_nodes(db, str(abs_path))
+        assert len(rows) > 0
+        node_type = str(rows[0][1]).strip('"')
+        assert node_type == "module"
+    finally:
+        abs_path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_pool_event_loads_age_without_ensure_ready(
+    _run_migrations: None,
+    test_db_url: str,
+    ingested_file: tuple[str, str],
+) -> None:
+    """A fresh engine from get_engine() can run Cypher without calling ensure_ready().
+
+    This proves the pool-level 'connect' event listener correctly loads AGE
+    and sets the search_path on every new connection.
+    """
+    _, tmp_path = ingested_file
+    try:
+        with patch.dict(os.environ, {"DATABASE_URL": test_db_url}):
+            from codex_graph.db.engine import get_engine
+
+            engine = get_engine()
+        fresh_db = PostgresGraphDatabase(engine)
+        # Intentionally skip ensure_ready() — the pool event should suffice.
+        rows = await query_cypher(fresh_db, "MATCH (n:AstNode) RETURN count(n)")
+        assert len(rows) == 1
+        count = int(str(rows[0][0]).strip('"'))
+        assert count > 0
+        await engine.dispose()
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 
