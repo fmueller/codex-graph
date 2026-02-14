@@ -1,8 +1,10 @@
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from codex_graph.db.helpers import GRAPH_NAME, escape_str, parse_agtype_int, to_cypher_props
 
@@ -41,11 +43,21 @@ async def ensure_graph(engine: AsyncEngine, name: str) -> None:
         )
 
 
-async def execute_cypher(engine: AsyncEngine, cypher: str) -> None:
-    async with engine.begin() as conn:
+@asynccontextmanager
+async def _use_conn(engine: AsyncEngine, conn: AsyncConnection | None = None) -> AsyncIterator[AsyncConnection]:
+    """Yield an existing connection or open a new transactional one."""
+    if conn is not None:
+        yield conn
+    else:
+        async with engine.begin() as new_conn:
+            yield new_conn
+
+
+async def execute_cypher(engine: AsyncEngine, cypher: str, conn: AsyncConnection | None = None) -> None:
+    async with _use_conn(engine, conn) as c:
         tag = f"q_{uuid.uuid4().hex}"
         sql = f"SELECT * FROM ag_catalog.cypher('{GRAPH_NAME}', ${tag}$ {cypher} ${tag}$) AS (ignored agtype)"
-        await conn.exec_driver_sql(sql)
+        await c.exec_driver_sql(sql)
 
 
 def count_return_columns(cypher: str) -> int:
@@ -83,14 +95,16 @@ def count_return_columns(cypher: str) -> int:
     return count
 
 
-async def fetch_cypher(engine: AsyncEngine, cypher: str, columns: int | None = None) -> list[tuple[Any, ...]]:
+async def fetch_cypher(
+    engine: AsyncEngine, cypher: str, columns: int | None = None, conn: AsyncConnection | None = None
+) -> list[tuple[Any, ...]]:
     if columns is None:
         columns = count_return_columns(cypher)
-    async with engine.begin() as conn:
+    async with _use_conn(engine, conn) as c:
         tag = f"q_{uuid.uuid4().hex}"
         col_defs = ", ".join(f"c{i} agtype" for i in range(columns))
         sql = f"SELECT * FROM ag_catalog.cypher('{GRAPH_NAME}', ${tag}$ {cypher} ${tag}$) AS ({col_defs})"
-        result = await conn.exec_driver_sql(sql)
+        result = await c.exec_driver_sql(sql)
         rows = result.fetchall()
         return [tuple(row) for row in rows]
 
@@ -128,11 +142,6 @@ async def db_lookup_node_id_by_shape(engine: AsyncEngine, shape_hash: str) -> in
 
 
 async def db_insert_ast_node(engine: AsyncEngine, props: dict[str, Any]) -> int:
-    span_key = props.get("span_key")
-    if span_key:
-        existing = await db_lookup_node_id_by_span(engine, span_key)
-        if existing is not None:
-            return existing
     props_cypher = to_cypher_props(props)
     cypher_create = f"CREATE (n:AstNode {props_cypher}) RETURN id(n)"
     rows = await fetch_cypher(engine, cypher_create)

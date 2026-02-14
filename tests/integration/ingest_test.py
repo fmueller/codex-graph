@@ -4,6 +4,8 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from sqlalchemy import event
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from codex_graph.core.ingest import run_ingest
 from codex_graph.core.query import query_cypher, query_files
@@ -110,3 +112,33 @@ async def test_ingest_deduplicates_same_file(db: PostgresGraphDatabase) -> None:
         assert uuid1 == uuid2
     finally:
         Path(tmp_path).unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_ingest_db_round_trips_bounded(database: AsyncEngine, db: PostgresGraphDatabase) -> None:
+    """Ingest should use batched operations, not per-node queries.
+
+    This test counts SQL statements executed during ingestion and asserts
+    they stay below a threshold.  An N+1 regression (per-node queries)
+    would produce 200+ statements for SAMPLE_PYTHON; batched operations
+    should need fewer than 100.
+    """
+    with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as f:
+        f.write(SAMPLE_PYTHON)
+        f.flush()
+        tmp_path = f.name
+
+    query_count = 0
+
+    def _count(*args: object, **kwargs: object) -> None:
+        nonlocal query_count
+        query_count += 1
+
+    event.listen(database.sync_engine, "before_cursor_execute", _count)
+    try:
+        await run_ingest(db, path=tmp_path)
+    finally:
+        event.remove(database.sync_engine, "before_cursor_execute", _count)
+        Path(tmp_path).unlink(missing_ok=True)
+
+    assert query_count < 100, f"Ingest executed {query_count} SQL statements — possible N+1 regression"
