@@ -62,7 +62,10 @@ class CursorPaginationMiddleware(BaseHTTPMiddleware):
         meta: dict[str, Any] = body.get("meta", {})
         meta.pop("count", None)
         meta.pop("totalPages", None)
-        body["meta"] = meta
+        if meta:
+            body["meta"] = meta
+        else:
+            body.pop("meta", None)
 
         new_body = json.dumps(body).encode()
         headers = dict(response.headers)

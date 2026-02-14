@@ -142,14 +142,14 @@ class TestAstNodesResource:
 
 
 class TestStatisticsRoute:
-    def test_statistics_returns_meta(self, client: TestClient) -> None:
+    def test_statistics_returns_flat_json(self, client: TestClient) -> None:
         resp = client.get("/statistics")
         assert resp.status_code == 200
         body = resp.json()
-        assert "meta" in body
-        assert "counts" in body["meta"]
-        assert "languages" in body["meta"]
-        assert "node_types" in body["meta"]
+        assert "counts" in body
+        assert "languages" in body
+        assert "node_types" in body
+        assert "meta" not in body
 
 
 class TestCypherRoute:
@@ -171,10 +171,7 @@ class TestCursorPagination:
         resp = client.get("/files")
         assert resp.status_code == 200
         body = resp.json()
-        assert "meta" in body
-        assert "page" not in body["meta"]
-        assert "count" not in body["meta"]
-        assert "totalPages" not in body["meta"]
+        assert "meta" not in body
 
     def test_files_pagination_links_null_when_no_data(self, client: TestClient) -> None:
         resp = client.get("/files")
@@ -255,18 +252,13 @@ class TestCursorPagination:
         assert body["data"] == []
         assert body["links"]["next"] is None
         assert body["links"]["prev"] is None
-        assert "page" not in body["meta"]
-        assert "count" not in body["meta"]
-        assert "totalPages" not in body["meta"]
+        assert "meta" not in body
 
     def test_ast_nodes_default_pagination_no_stale_meta(self, client: TestClient) -> None:
         resp = client.get("/ast-nodes")
         assert resp.status_code == 200
         body = resp.json()
-        assert "meta" in body
-        assert "page" not in body["meta"]
-        assert "count" not in body["meta"]
-        assert "totalPages" not in body["meta"]
+        assert "meta" not in body
 
     def test_files_invalid_cursor_returns_error(self, client: TestClient) -> None:
         resp = client.get("/files", params={"page[after]": "not-a-valid-cursor!!!"})

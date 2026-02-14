@@ -25,9 +25,7 @@ async def statistics(
     langs = await query_language_distribution(db)
     node_types = await query_node_type_counts(db)
     return {
-        "meta": {
-            "counts": stats,
-            "languages": [{"language": lang, "count": count} for lang, count in langs],
-            "node_types": [{"type": t, "count": c} for t, c in node_types],
-        },
+        "counts": stats,
+        "languages": [{"language": lang, "count": count} for lang, count in langs],
+        "node_types": [{"type": t, "count": c} for t, c in node_types],
     }
